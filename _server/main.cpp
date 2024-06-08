@@ -10,14 +10,29 @@
 #define PORT 8080
 #define BUFFER_SIZE 1024
 
+struct tcp_hdr
+{
+    uint32_t number;
+    uint32_t ack_number;
+    uint16_t len:4, reserved:3, ns:1, cwr:1, ece:1, fin:1, syn:1, rst:1, psh:1, ack:1, urg:1;
+    uint16_t window_size;
+    uint16_t SACK;
+};
+
 struct pars
 {
     struct iphdr ip;
     struct udphdr udp;
+    struct tcp_hdr tcp;
 };
 
 void parse_packet(const char *packet, pars &p, char *payload, size_t payload_size) {
     memcpy(&p, packet, sizeof(pars));
+    std::cout << "test ||||" <<std::endl;
+    std::cout << "tcp->number - " << ntohs(p.tcp.number) << std::endl;
+    std::cout << "tcp->ack_number - " << ntohs(p.tcp.ack_number) << std::endl;
+    std::cout << "tcp->len - " << ntohs(p.tcp.len) << std::endl;
+    std::cout << "test ||||" <<std::endl;
     size_t headers_size = sizeof(pars);
     size_t payload_len = payload_size - headers_size;
     memcpy(payload, packet + sizeof(pars), payload_size);
@@ -36,6 +51,7 @@ int main() {
     }
     std::cout << "iphdr - " <<sizeof(struct iphdr) << std::endl;
     std::cout << "udphdr - " <<sizeof(struct udphdr) << std::endl;
+    std::cout << "tcp_hdr - " <<sizeof(struct tcp_hdr) << std::endl;
     memset(&servaddr, 0, sizeof(servaddr));
     memset(&cliaddr, 0, sizeof(cliaddr));
 
@@ -51,7 +67,7 @@ int main() {
     struct pars p;
     while (true) {
         socklen_t len = sizeof(cliaddr);
-        char packet[sizeof(struct iphdr) + sizeof(struct udphdr) + BUFFER_SIZE];
+        char packet[sizeof(struct iphdr) + sizeof(struct udphdr) + sizeof(struct tcp_hdr) + BUFFER_SIZE];
         char payload[BUFFER_SIZE];
         int n = recvfrom(sockfd, packet, sizeof(packet), 0, (struct sockaddr *)&cliaddr, &len);
         if (n > 0) {

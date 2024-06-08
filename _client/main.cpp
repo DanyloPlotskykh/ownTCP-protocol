@@ -6,16 +6,12 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 
+#include "Sender.hpp"
+
 #define PORT 8080
 #define BUFFER_SIZE 1024
 
-// struct pseudo_header {
-//     u_int32_t source_address;
-//     u_int32_t dest_address;
-//     u_int8_t placeholder;
-//     u_int8_t protocol;
-//     u_int16_t udp_length;
-// };
+std::string_view ip_address = "127.0.0.1";
 
 unsigned short checksum(void *b, int len) {    
     unsigned short *buf = static_cast<unsigned short *>(b);
@@ -33,54 +29,58 @@ unsigned short checksum(void *b, int len) {
 }
 
 int main() {
-    int sockfd;
-    char buffer[BUFFER_SIZE];
-    struct sockaddr_in servaddr;
-    std::cout << "Server started." << std::endl;
-    if ((sockfd = socket(PF_INET, SOCK_RAW, IPPROTO_RAW)) < 0) {
-        perror("socket creation failed");
-        exit(EXIT_FAILURE);
-    }
+    Sender s(ip_address, 8080);
+    s.connect();
+    // int sockfd;
+    // char buffer[BUFFER_SIZE];
+    // struct sockaddr_in servaddr;
+    // std::cout << "Server started." << std::endl;
+    // if ((sockfd = socket(PF_INET, SOCK_RAW, IPPROTO_RAW)) < 0) {
+    //     perror("socket creation failed");
+    //     exit(EXIT_FAILURE);
+    // }
 
-    memset(&servaddr, 0, sizeof(servaddr));
+    // std::cout << sizeof(struct tcp_hdr) << std::endl;
 
-    servaddr.sin_family = AF_INET;
-    servaddr.sin_port = htons(PORT);
-    servaddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+    // memset(&servaddr, 0, sizeof(servaddr));
 
-    const char *message = "Hello, Server!";
-    int message_len = strlen(message);
+    // servaddr.sin_family = AF_INET;
+    // servaddr.sin_port = htons(PORT);
+    // servaddr.sin_addr.s_addr = inet_addr("127.0.0.1");
 
-    struct iphdr *iph = (struct iphdr *)buffer;
-    std::cout << "iphdr - " <<sizeof(struct iphdr) << std::endl;
-    iph->ihl = 5;
-    iph->version = 4;
-    iph->tos = 0;
-    iph->tot_len = htons(sizeof(struct iphdr) + sizeof(struct udphdr) + message_len);
-    iph->id = htonl(54321);
-    iph->frag_off = 0;
-    iph->ttl = 255;
-    iph->protocol = IPPROTO_UDP;
-    iph->check = 0;
-    iph->saddr = inet_addr("127.0.0.1");
-    iph->daddr = servaddr.sin_addr.s_addr;
+    // const char *message = "Hello, Server!";
+    // int message_len = strlen(message);
 
-    std::cout << "udphdr - " <<sizeof(struct udphdr) << std::endl;
-    struct udphdr *udph = (struct udphdr *)(buffer + sizeof(struct iphdr));
-    udph->source = htons(12345);
-    udph->dest = htons(PORT);
-    udph->len = htons(sizeof(struct udphdr) + message_len);
-    udph->check = 0;
+    // struct iphdr *iph = (struct iphdr *)buffer;
+    // std::cout << "iphdr - " <<sizeof(struct iphdr) << std::endl;
+    // iph->ihl = 5;
+    // iph->version = 4;
+    // iph->tos = 0;
+    // iph->tot_len = htons(sizeof(struct iphdr) + sizeof(struct udphdr) + message_len);
+    // iph->id = htonl(54321);
+    // iph->frag_off = 0;
+    // iph->ttl = 255;
+    // iph->protocol = IPPROTO_UDP;
+    // iph->check = 0;
+    // iph->saddr = inet_addr("127.0.0.1");
+    // iph->daddr = servaddr.sin_addr.s_addr;
 
-    memcpy(buffer + sizeof(struct iphdr) + sizeof(struct udphdr), message, message_len);
+    // std::cout << "udphdr - " <<sizeof(struct udphdr) << std::endl;
+    // struct udphdr *udph = (struct udphdr *)(buffer + sizeof(struct iphdr));
+    // udph->source = htons(12345);
+    // udph->dest = htons(PORT);
+    // udph->len = htons(sizeof(struct udphdr) + message_len);
+    // udph->check = 0;
 
-    if (sendto(sockfd, buffer, ntohs(iph->tot_len), 0, (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0) {
-        perror("sendto failed");
-    } else {
-        std::cout << "Message sent to server." << std::endl;
-    }
+    // memcpy(buffer + sizeof(struct iphdr) + sizeof(struct udphdr), message, message_len);
 
-    close(sockfd);
+    // if (sendto(sockfd, buffer, ntohs(iph->tot_len), 0, (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0) {
+    //     perror("sendto failed");
+    // } else {
+    //     std::cout << "Message sent to server." << std::endl;
+    // }
+
+    // close(sockfd);
     return 0;
 }
 
