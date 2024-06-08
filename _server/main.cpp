@@ -14,7 +14,6 @@ struct pars
 {
     struct iphdr ip;
     struct udphdr udp;
-    
 };
 
 void parse_packet(const char *packet, pars &p, char *payload, size_t payload_size) {
