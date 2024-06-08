@@ -37,7 +37,7 @@ int main() {
     char buffer[BUFFER_SIZE];
     struct sockaddr_in servaddr;
     std::cout << "Server started." << std::endl;
-    if ((sockfd = socket(PF_INET, SOCK_RAW, IPPROTO_UDP)) < 0) {
+    if ((sockfd = socket(PF_INET, SOCK_RAW, IPPROTO_RAW)) < 0) {
         perror("socket creation failed");
         exit(EXIT_FAILURE);
     }
