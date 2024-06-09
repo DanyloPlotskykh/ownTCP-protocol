@@ -7,32 +7,39 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 
+#include "Reciever.hpp"
+
 #define PORT 8080
 #define BUFFER_SIZE 1024
 
-struct tcp_hdr
-{
-    uint32_t number;
-    uint32_t ack_number;
-    uint16_t len:4, reserved:3, ns:1, cwr:1, ece:1, fin:1, syn:1, rst:1, psh:1, ack:1, urg:1;
-    uint16_t window_size;
-    uint16_t SACK;
-};
+// struct tcp_hdr
+// {
+//     uint32_t number;
+//     uint32_t ack_number;
+//     uint16_t len:4, reserved:3, ns:1, cwr:1, ece:1, fin:1, syn:1, rst:1, psh:1, ack:1, urg:1;
+//     uint16_t window_size;
+//     uint16_t SACK;
+// };
 
-struct pars
-{
-    struct iphdr ip;
-    struct udphdr udp;
-    struct tcp_hdr tcp;
-};
+// struct pars
+// {
+//     struct iphdr ip;
+//     struct udphdr udp;
+//     struct tcp_hdr tcp;
+// };
 
 void parse_packet(const char *packet, pars &p, char *payload, size_t payload_size) {
     memcpy(&p, packet, sizeof(pars));
     std::cout << "test ||||" <<std::endl;
     std::cout << "tcp->number - " << ntohs(p.tcp.number) << std::endl;
     std::cout << "tcp->ack_number - " << ntohs(p.tcp.ack_number) << std::endl;
-    std::cout << "tcp->len - " << ntohs(p.tcp.len) << std::endl;
+    std::cout << "tcp->len - " << p.tcp.len << std::endl;
+    std::cout << "tcp->syn - " << p.tcp.syn << std::endl; 
     std::cout << "test ||||" <<std::endl;
+    if(ntohs(p.tcp.syn) == 1)
+    {
+        //jjj
+    }
     size_t headers_size = sizeof(pars);
     size_t payload_len = payload_size - headers_size;
     memcpy(payload, packet + sizeof(pars), payload_size);
@@ -42,50 +49,52 @@ void parse_packet(const char *packet, pars &p, char *payload, size_t payload_siz
 }
 
 int main() {
-    int sockfd;
-    struct sockaddr_in servaddr, cliaddr;
+    Reciever r;
+    r.accept();
+    // int sockfd;
+    // struct sockaddr_in servaddr, cliaddr;
 
-    if ((sockfd = socket(PF_INET, SOCK_RAW, IPPROTO_UDP)) < 0) {
-        perror("socket creation failed");
-        exit(EXIT_FAILURE);
-    }
-    std::cout << "iphdr - " <<sizeof(struct iphdr) << std::endl;
-    std::cout << "udphdr - " <<sizeof(struct udphdr) << std::endl;
-    std::cout << "tcp_hdr - " <<sizeof(struct tcp_hdr) << std::endl;
-    memset(&servaddr, 0, sizeof(servaddr));
-    memset(&cliaddr, 0, sizeof(cliaddr));
+    // if ((sockfd = socket(PF_INET, SOCK_RAW, IPPROTO_UDP)) < 0) {
+    //     perror("socket creation failed");
+    //     exit(EXIT_FAILURE);
+    // }
+    // std::cout << "iphdr - " <<sizeof(struct iphdr) << std::endl;
+    // std::cout << "udphdr - " <<sizeof(struct udphdr) << std::endl;
+    // std::cout << "tcp_hdr - " <<sizeof(struct tcp_hdr) << std::endl;
+    // memset(&servaddr, 0, sizeof(servaddr));
+    // memset(&cliaddr, 0, sizeof(cliaddr));
 
-    servaddr.sin_family = AF_INET;
-    servaddr.sin_addr.s_addr = INADDR_ANY;
-    servaddr.sin_port = htons(PORT);
+    // servaddr.sin_family = AF_INET;
+    // servaddr.sin_addr.s_addr = INADDR_ANY;
+    // servaddr.sin_port = htons(PORT);
 
-    if (bind(sockfd, (const struct sockaddr *)&servaddr, sizeof(servaddr)) < 0) {
-        perror("bind failed");
-        close(sockfd);
-        exit(EXIT_FAILURE);
-    }
-    struct pars p;
-    while (true) {
-        socklen_t len = sizeof(cliaddr);
-        char packet[sizeof(struct iphdr) + sizeof(struct udphdr) + sizeof(struct tcp_hdr) + BUFFER_SIZE];
-        char payload[BUFFER_SIZE];
-        int n = recvfrom(sockfd, packet, sizeof(packet), 0, (struct sockaddr *)&cliaddr, &len);
-        if (n > 0) {
-            n = -1;
-            parse_packet(packet, p, payload, sizeof(payload));
-            std::cout << "size packet - " << sizeof(packet) << std::endl;
-            for(int i = 0;i < sizeof(packet); i++)
-            {
-                if(packet[i] == 'H')
-                {
-                    std::cout << i << std::endl;
-                }
-            }
-            std::cout << std::endl;
-            std::cout << "Received packet from client - " << std::string(payload) << std::endl;
-        }
-    }
-    close(sockfd);
+    // if (bind(sockfd, (const struct sockaddr *)&servaddr, sizeof(servaddr)) < 0) {
+    //     perror("bind failed");
+    //     close(sockfd);
+    //     exit(EXIT_FAILURE);
+    // }
+    // struct pars p;
+    // while (true) {
+    //     socklen_t len = sizeof(cliaddr);
+    //     char packet[sizeof(struct iphdr) + sizeof(struct udphdr) + sizeof(struct tcp_hdr) + BUFFER_SIZE];
+    //     char payload[BUFFER_SIZE];
+    //     int n = recvfrom(sockfd, packet, sizeof(packet), 0, (struct sockaddr *)&cliaddr, &len);
+    //     if (n > 0) {
+    //         std::cout << "size n - " << n << std::endl;
+    //         parse_packet(packet, p, payload, sizeof(payload));
+    //         std::cout << "size packet - " << sizeof(packet) << std::endl;
+    //         for(int i = 0;i < sizeof(packet); i++)
+    //         {
+    //             if(packet[i] == 'H')
+    //             {
+    //                 std::cout << i << std::endl;
+    //             }
+    //         }
+    //         std::cout << std::endl;
+    //         std::cout << "Received packet from client - " << std::string(payload) << std::endl;
+    //     }
+    // }
+    // close(sockfd);
     return 0;
 }
 
