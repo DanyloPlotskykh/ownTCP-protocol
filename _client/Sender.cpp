@@ -1,6 +1,5 @@
 #include "Sender.hpp"
 #include <cstring>
-
 tcp_hdr& tcp_hdr::operator=(const tcp_hdr& other)
 {
     if (this == &other) {
@@ -138,7 +137,6 @@ bool Sender::connect()
     } else {
         std::cout << "Message sent to server." << std::endl;
     }
-
     // tcp_hdr *tcp = (struct tcp_hdr *) (m_buffer + sizeof(struct iphdr) + sizeof(struct udphdr));
     // tcp->number = htons(1);
     // tcp->ack_number = htons(0);
