@@ -1,6 +1,9 @@
 #include "Sender.hpp"
 #include <cstring>
 
+#define PORT 8080
+#define SERVER_IP "127.0.0.1"
+
 tcp_hdr& tcp_hdr::operator=(const tcp_hdr& other)
 {
     if (this == &other) {
@@ -68,19 +71,19 @@ tcp_hdr Interface::tcpHeader() const
 }
 
 Sender::Sender(std::string_view addr, int port) : m_addr(addr), m_port(port), 
-        m_sizeheaders(sizeof(struct iphdr))
+        m_sizeheaders(sizeof(struct iphdr)+ sizeof(struct udphdr)+ sizeof(struct tcp_hdr))
 {
     std::cout << "Sender::Sender()" << std::endl;
-    if ((m_sockfd = socket(PF_INET, SOCK_RAW, IPPROTO_UDP)) < 0) {
+    if ((m_sockfd = socket(PF_INET, SOCK_RAW, IPPROTO_RAW)) < 0) {
         perror("socket creation failed");
         exit(EXIT_FAILURE);
     }
     m_servaddr.sin_family = AF_INET;
-    m_servaddr.sin_addr.s_addr = inet_addr(addr.data()); // Привязываем к конкретному IP-адресу клиента
+    m_servaddr.sin_addr.s_addr = inet_addr(addr.data());
     m_servaddr.sin_port = htons(m_port);
 
-    if (bind(m_sockfd, (const struct sockaddr *)&m_servaddr, sizeof(m_servaddr)) < 0) {
-        perror("bind failed");
+    if (inet_pton(AF_INET, SERVER_IP, &m_servaddr.sin_addr) <= 0) {
+        perror("Invalid address/ Address not supported");
         exit(EXIT_FAILURE);
     }
 }
@@ -92,7 +95,7 @@ std::array<char, 1024> Sender::create_packet(const struct tcp_hdr& tcp, const ch
     iph->ihl = 5;
     iph->version = 4;
     iph->tos = 0;
-    iph->tot_len = htons(sizeof(struct iphdr) + sizeof(struct tcp_hdr) + data_size);
+    iph->tot_len = htons(sizeof(struct iphdr) + sizeof(struct udphdr) + sizeof(struct tcp_hdr) + data_size);
     iph->id = htonl(54321);
     iph->frag_off = 0;
     iph->ttl = 255;
@@ -101,16 +104,16 @@ std::array<char, 1024> Sender::create_packet(const struct tcp_hdr& tcp, const ch
     iph->saddr = inet_addr(m_addr.c_str());
     iph->daddr = m_servaddr.sin_addr.s_addr;
 
-    // struct udphdr *udph = (struct udphdr *)(packet.data() + sizeof(struct iphdr));
-    // udph->source = htons(m_port);
-    // udph->dest = htons(m_port);
-    // udph->len = htons(sizeof(struct udphdr) + sizeof(struct tcp_hdr));
-    // udph->check = htons(calculate_checksum(packet.data(), sizeof(struct udphdr))); // Необязательно для отправки пакетов с RAW сокетом
-    // struct tcp_hdr *tcph = (struct tcp_hdr *)(packet.data() + sizeof(struct iphdr));
-    // *tcph = tcp;
-    // tcph->len = calculate_checksum(packet.data(), sizeof(struct tcp_hdr)); // Неправильное использование функции
-    // std::cout << "calc - " << tcph->len << std::endl;
-    memcpy(packet.data() + sizeof(struct iphdr), data, data_size);
+    struct udphdr *udph = (struct udphdr *)(packet.data() + sizeof(struct iphdr));
+    udph->source = htons(m_port);
+    udph->dest = htons(m_port);
+    udph->len = htons(sizeof(struct udphdr) + sizeof(struct tcp_hdr));
+    udph->check = htons(calculate_checksum(packet.data(), sizeof(struct udphdr))); 
+    struct tcp_hdr *tcph = (struct tcp_hdr *)(packet.data() + sizeof(struct iphdr));
+    *tcph = tcp;
+    tcph->len = calculate_checksum(packet.data(), sizeof(struct tcp_hdr));
+    std::cout << "calc - " << tcph->len << std::endl;
+    memcpy(packet.data() + sizeof(struct iphdr) + sizeof(struct udphdr) + sizeof(tcp_hdr), data, data_size);
     return packet;
 }
 

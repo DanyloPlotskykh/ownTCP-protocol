@@ -62,7 +62,7 @@ iphdr Interface::ipHeader() const
 
 udphdr Interface::udpHeader() const
 {
-    // return p.udp;
+    return p.udp;
 }
 tcp_hdr Interface::tcpHeader() const
 {
@@ -75,10 +75,10 @@ char * Interface::data() const
 }
 
 Reciever::Reciever() : m_addr("127.0.0.1"), ack(0), byte(0), m_sockfd(-1), m_port(8080), 
-    m_sizeheaders(sizeof(struct iphdr) + sizeof(struct tcp_hdr))
+    m_sizeheaders(sizeof(struct iphdr) + sizeof(struct udphdr) + sizeof(struct tcp_hdr)) 
 {
     std::cout << "Reciever::Reciever()" << std::endl;
-    if ((m_sockfd = socket(PF_INET, SOCK_RAW, IPPROTO_UDP)) < 0) {
+    if ((m_sockfd = socket(PF_INET, SOCK_RAW, IPPROTO_RAW)) < 0) {
         perror("socket creation failed");
         exit(EXIT_FAILURE);
     }
@@ -114,27 +114,27 @@ std::array<char, 1024> Reciever::create_packet(const struct tcp_hdr& tcp, const 
     iph->ihl = 5;
     iph->version = 4;
     iph->tos = 0;
-    iph->tot_len = htons(sizeof(struct iphdr) + sizeof(struct tcp_hdr) + data_size);
+    iph->tot_len = htons(sizeof(struct iphdr) + sizeof(struct udphdr)+ sizeof(struct tcp_hdr) + data_size);
     iph->id = htonl(54321);
     iph->frag_off = 0;
     iph->ttl = 255;
     iph->protocol = IPPROTO_UDP;
-    iph->check = calculate_checksum(packet.data(), sizeof(struct iphdr));
+    iph->check = 0;
     iph->saddr = inet_addr(m_addr.c_str());
     iph->daddr = m_cliaddr.sin_addr.s_addr;
 
     std::cout << "address: " << ip_to_string(iph->saddr) << std::endl;
     std::cout << "address: " << ip_to_string(iph->daddr) << std::endl;
 
-    // struct udphdr *udph = (struct udphdr *)(packet.data() + sizeof(struct iphdr));
-    // udph->source = htons(m_port);
-    // udph->dest = htons(m_port);
-    // udph->len = htons(sizeof(struct udphdr) + sizeof(struct tcp_hdr));
-    // udph->check = htons(calculate_checksum(packet.data(), sizeof(struct udphdr)));
+    struct udphdr *udph = (struct udphdr *)(packet.data() + sizeof(struct iphdr));
+    udph->source = htons(m_port);
+    udph->dest = htons(m_port);
+    udph->len = htons(sizeof(struct udphdr) + sizeof(struct tcp_hdr));
+    udph->check = htons(calculate_checksum(packet.data(), sizeof(struct udphdr)));
 
     struct tcp_hdr *tcph = (struct tcp_hdr *)(packet.data() + sizeof(struct iphdr));
     *tcph = tcp;
-    memcpy(packet.data() + sizeof(struct iphdr) + sizeof(struct tcp_hdr), data, data_size);
+    memcpy(packet.data() + sizeof(struct iphdr) +sizeof(struct udphdr) +  sizeof(struct tcp_hdr), data, data_size);
     return packet;
 }
 
@@ -144,20 +144,10 @@ int Reciever::accept() {
     socklen_t len = sizeof(m_cliaddr);
     Interface *interf; 
     while (1) {
+        //SYN
         int n = recvfrom(m_sockfd, packet, sizeof(packet), 0, (struct sockaddr *) &m_cliaddr, &len);
         if (n > 0) {
             interf = new Interface(packet);
-            for(char c : packet) {
-                std::cout << c;
-            }
-            std::cout << std::endl;
-            for(int i = 0; i < n; ++i)
-            {
-                if(packet[i] == 'H')
-                {
-                    std::cout << "mmm - " << i << std::endl;
-                }
-            }
             std::cout << "Reciever::accept() - SYN: " << n << std::endl;
             if (interf->tcpHeader().syn == 1) {
                 // SYN-ACK
@@ -171,8 +161,7 @@ int Reciever::accept() {
                 tcp.syn = 1;
                 auto packet = create_packet(tcp, data, data_len);
                 std::cout << "Reciever::accept() - SYN-ACK" << std::endl;
-                socklen_t cliaddr_len = sizeof(m_cliaddr);
-                int j = sendto(m_sockfd, packet.data(), m_sizeheaders + data_len, 0, (struct sockaddr *) &m_cliaddr, cliaddr_len);
+                int j = sendto(m_sockfd, packet.data(), m_sizeheaders + data_len, 0, (struct sockaddr *)&m_cliaddr, len);
                 if (j < 0) {
                     perror("sendto failed");
                     std::cout << "sendto failed with error code: " << errno << std::endl;
@@ -180,6 +169,7 @@ int Reciever::accept() {
                 else
                 {
                     std::cout << "sendto success - " << n <<  std::endl;
+                    //ACK
                 }
             }
         } else {
