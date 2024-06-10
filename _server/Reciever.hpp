@@ -5,6 +5,7 @@
 #include <netinet/udp.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
+#include <string>
 
 #define BUFFER_SIZE 1024
 
@@ -22,7 +23,7 @@ struct tcp_hdr
 struct pars
 {
     struct iphdr ip;
-    struct udphdr udp;
+    // struct udphdr udp;
     struct tcp_hdr tcp;
 };
 
@@ -40,15 +41,17 @@ public:
     char * data() const;
 };
 
-class Reciever
-{
+class Reciever {
 private:
+    const int m_sizeheaders;
+    std::string m_addr;
     std::queue<Interface> m_window;
     int ack;
     int byte;
     int m_sockfd;
+    int m_port;
     struct sockaddr_in m_servaddr, m_cliaddr;
-    //std::array<char, 1024> create_packet(const struct tcp_hdr& tcp, const char* data, int data_size);
+    std::array<char, 1024> create_packet(const struct tcp_hdr& tcp, const char* data, int data_size);
 public:
     Reciever();
     ~Reciever();

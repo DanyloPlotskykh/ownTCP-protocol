@@ -17,11 +17,30 @@ struct tcp_hdr
     tcp_hdr& operator=(const tcp_hdr& other);
 };
 
+struct pars
+{
+    struct iphdr ip;
+    struct udphdr udp;
+    struct tcp_hdr tcp;
+};
+
+class Interface
+{
+private:
+    std::array<char, 1024> m_buffer;
+    pars p;
+public:
+    explicit Interface(const char* packet);
+    ~Interface();
+    iphdr ipHeader() const;
+    udphdr udpHeader() const;
+    tcp_hdr tcpHeader() const;
+};
+
 class Sender
 {
 private:
-    char m_buffer[1024];
-private:
+    const int m_sizeheaders;
     int m_sockfd;
     const std::string m_addr;
     int m_port;
@@ -29,7 +48,6 @@ private:
     std::array<char, 1024> create_packet(const struct tcp_hdr& tcp, const char* data, int data_size);
 public:
     Sender(std::string_view addr, int port);
-    ~Sender();
     //SYN
     bool connect(); 
     //SACK
