@@ -1,10 +1,5 @@
 #include <iostream>
 #include <cstring>
-#include <sys/socket.h>
-#include <netinet/ip.h>
-#include <netinet/udp.h>
-#include <arpa/inet.h>
-#include <unistd.h>
 
 #include "Sender.hpp"
 
@@ -16,56 +11,6 @@ std::string_view ip_address = "127.0.0.1";
 int main() {
     Sender s(ip_address, 8080);
     s.connect();
-    // int sockfd;
-    // char buffer[BUFFER_SIZE];
-    // struct sockaddr_in servaddr;
-    // std::cout << "Server started." << std::endl;
-    // if ((sockfd = socket(PF_INET, SOCK_RAW, IPPROTO_RAW)) < 0) {
-    //     perror("socket creation failed");
-    //     exit(EXIT_FAILURE);
-    // }
-
-    // std::cout << sizeof(struct tcp_hdr) << std::endl;
-
-    // memset(&servaddr, 0, sizeof(servaddr));
-
-    // servaddr.sin_family = AF_INET;
-    // servaddr.sin_port = htons(PORT);
-    // servaddr.sin_addr.s_addr = inet_addr("127.0.0.1");
-
-    // const char *message = "Hello, Server!";
-    // int message_len = strlen(message);
-
-    // struct iphdr *iph = (struct iphdr *)buffer;
-    // std::cout << "iphdr - " <<sizeof(struct iphdr) << std::endl;
-    // iph->ihl = 5;
-    // iph->version = 4;
-    // iph->tos = 0;
-    // iph->tot_len = htons(sizeof(struct iphdr) + sizeof(struct udphdr) + message_len);
-    // iph->id = htonl(54321);
-    // iph->frag_off = 0;
-    // iph->ttl = 255;
-    // iph->protocol = IPPROTO_UDP;
-    // iph->check = 0;
-    // iph->saddr = inet_addr("127.0.0.1");
-    // iph->daddr = servaddr.sin_addr.s_addr;
-
-    // std::cout << "udphdr - " <<sizeof(struct udphdr) << std::endl;
-    // struct udphdr *udph = (struct udphdr *)(buffer + sizeof(struct iphdr));
-    // udph->source = htons(12345);
-    // udph->dest = htons(PORT);
-    // udph->len = htons(sizeof(struct udphdr) + message_len);
-    // udph->check = 0;
-
-    // memcpy(buffer + sizeof(struct iphdr) + sizeof(struct udphdr), message, message_len);
-
-    // if (sendto(sockfd, buffer, ntohs(iph->tot_len), 0, (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0) {
-    //     perror("sendto failed");
-    // } else {
-    //     std::cout << "Message sent to server." << std::endl;
-    // }
-
-    // close(sockfd);
     return 0;
 }
 
@@ -88,17 +33,6 @@ int main() {
 
     // iph->check = checksum((void *)buffer, ntohs(iph->tot_len));
     // delete[] pseudogram;
-    
-// #include <stdio.h>
-// #include <stdlib.h>
-// #include <string.h>
-// #include <unistd.h>
-// #include <arpa/inet.h>
-// #include <netinet/ip.h>
-// #include <netinet/udp.h>
-
-// #define SERVER_IP "127.0.0.1"
-// #define PORT 8080
 
 // struct pseudo_header {
 //     uint32_t source_address;
@@ -107,21 +41,6 @@ int main() {
 //     uint8_t protocol;
 //     uint16_t udp_length;
 // };
-
-// unsigned short checksum(void *b, int len) {    
-//     unsigned short *buf = (unsigned short *)b;
-//     unsigned int sum = 0;
-//     unsigned short result;
-
-//     for (sum = 0; len > 1; len -= 2)
-//         sum += *buf++;
-//     if (len == 1)
-//         sum += *(unsigned char *)buf;
-//     sum = (sum >> 16) + (sum & 0xFFFF);
-//     sum += (sum >> 16);
-//     result = ~sum;
-//     return result;
-// }
 
 // uint16_t calculate_checksum(const void* data, size_t length) {
 //     uint32_t sum = 0;

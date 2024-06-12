@@ -1,6 +1,8 @@
 #include "Reciever.hpp"
-#include <iostream>
+
 #include <cstring>
+#include <memory>
+#include <iostream>
 
 #define PORT 8080
 
@@ -24,6 +26,7 @@ tcp_hdr& tcp_hdr::operator=(const tcp_hdr& other)
     this->ack = other.ack;
     this->urg = other.urg;
     this->window_size = other.window_size;
+    this->from_serv = other.from_serv;
     this->SACK = other.SACK;
     return *this;
 }
@@ -44,7 +47,7 @@ unsigned short calculate_checksum(void* b, size_t len)
     return result;
 }
 
-Interface::Interface(const char* packet)
+Interface::Interface(const unsigned char* packet) : trueOrFalseCond(false)
 {
     std::cout << "Interface::Interface()" << std::endl;
     memcpy(&p, packet, sizeof(pars));
@@ -71,13 +74,31 @@ tcp_hdr Interface::tcpHeader() const
 
 char * Interface::data() const
 {
-
+    // return (char *)p.ip + sizeof(struct iphdr) + sizeof(struct udphdr);
 }
 
-Reciever::Reciever() : ack(0), byte(0)
+Interface& Interface::operator=(const bool other)
+{
+    this->trueOrFalseCond = other;
+    return *this;
+}
+
+Interface::operator bool() const
+{
+    return trueOrFalseCond;
+}
+
+bool Interface::operator!() const 
+{
+    return !trueOrFalseCond;
+}
+
+
+Reciever::Reciever() : m_addr("127.0.0.1"), ack(0), byte(0), m_sockfd(-1), m_port(8080), 
+    m_sizeheaders(sizeof(struct udphdr) + sizeof(struct tcp_hdr))
 {
     std::cout << "Reciever::Reciever()" << std::endl;
-    if ((m_sockfd = socket(PF_INET, SOCK_RAW, IPPROTO_UDP)) < 0) {
+    if ((m_sockfd = socket(AF_INET, SOCK_RAW, IPPROTO_UDP)) < 0) {
         perror("socket creation failed");
         exit(EXIT_FAILURE);
     }
@@ -92,6 +113,10 @@ Reciever::Reciever() : ack(0), byte(0)
         perror("bind failed");
         exit(EXIT_FAILURE);
     }
+
+    std::cout << "Size of udphdr: " << sizeof(struct udphdr) << std::endl;
+    std::cout << "Size of tcp_hdr: " << sizeof(struct tcp_hdr) << std::endl;
+
 }
 
 Reciever::~Reciever()
@@ -99,70 +124,153 @@ Reciever::~Reciever()
     std::cout << "Reciever::~Reciever()" << std::endl;
 }
 
-// std::array<char, 1024> Reciever::create_packet(const struct tcp_hdr& tcp, const char* data, int data_size)
-// {
-//     std::array<char, 1024> packet;
-//     struct iphdr *iph = (struct iphdr *)packet.data();
-//     iph->ihl = 5;
-//     iph->version = 4;
-//     iph->tos = 0;
-//     iph->tot_len = htons(sizeof(struct iphdr) + sizeof(struct udphdr) + sizeof(struct tcp_hdr) + data_size);
-//     iph->id = htonl(54321);
-//     iph->frag_off = 0;
-//     iph->ttl = 255;
-//     iph->protocol = IPPROTO_UDP;
-//     iph->check = calculate_checksum(packet.data(), sizeof(struct iphdr));
-//     iph->saddr = inet_addr(m_addr.c_str());
-//     iph->daddr = m_servaddr.sin_addr.s_addr;
+static std::string ip_to_string(uint32_t ip) {
+    struct in_addr ip_addr;
+    ip_addr.s_addr = ip;
+    return inet_ntoa(ip_addr);
+}
 
-//     struct udphdr *udph = (struct udphdr *)(packet.data() + sizeof(struct iphdr));
-//     udph->source = htons(12345);
-//     udph->dest = htons(m_port);
-//     udph->len = htons(sizeof(struct udphdr) + sizeof(struct tcp_hdr));
-//     udph->check = htons(calculate_checksum(&packet.data(), sizeof(struct udphdr)));
+Interface* Reciever::recieve() {
+    socklen_t addrlen = sizeof(m_cliaddr);
+    char buffer[1024];
+    Interface *inter;
 
-//     struct tcp_hdr *tcph = (struct tcp_hdr *)(packet.data() + sizeof(struct iphdr) + sizeof(struct udphdr));
-//     *tcph = tcp;
-//     memcpy(packet.data() + sizeof(struct iphdr) + sizeof(struct udphdr) + sizeof(struct tcp_hdr), data, data_size);
-//     return packet;
-// }
-
-int Reciever::accept()
-{
-    std::cout << "Reciever::accept()" << std::endl;
-    char packet[BUFFER_SIZE];
-    socklen_t len = sizeof(m_cliaddr);
-    Interface *interf; 
-    while(1)
+    while (1)
     {
-        int n = recvfrom(m_sockfd, packet, sizeof(packet), 0, (struct sockaddr *) &m_cliaddr, &len);
-        if(n > 0)
+        int i = recvfrom(m_sockfd, buffer, sizeof(buffer), 0, (struct sockaddr *)&m_cliaddr, &addrlen);
+        if(i > 0)
         {
-            interf = new Interface(packet);
-            if(interf->tcpHeader().syn == 1)
+            inter = new Interface((const unsigned char *)buffer);
+            if(inter->tcpHeader().from_serv == 0)
             {
-                //SYN-ACK
-                std::cout << "Reciever::accept() - SYN" << std::endl;
-                //sendto(m_sockfd)
+                std::cout << "cool\n";
+                return inter;
             }
         }
         else
         {
-            std::cout << "else - - " << std::endl;
+            std::cout << "nooo\n";
+        }
+    }
+    *inter = false;
+    return inter;
+}
+
+std::array<char, 1024> Reciever::create_packet(const struct tcp_hdr& tcp, const char* data, int data_size)
+{
+    std::cout << "Reciever::create_packet()" << std::endl;
+    std::array<char, 1024> packet;
+    packet.fill('\0');
+
+    struct udphdr *udph = (struct udphdr *)(packet.data());
+    udph->source = htons(m_port);
+    udph->dest = htons(m_port);
+    udph->len = htons(sizeof(struct udphdr) + sizeof(struct tcp_hdr));
+    udph->check = 0; 
+
+    struct tcp_hdr *tcph = (struct tcp_hdr *)(packet.data() + sizeof(struct udphdr));
+    *tcph = tcp;
+
+    memcpy(packet.data() + sizeof(struct udphdr) + sizeof(struct tcp_hdr), data, data_size);
+    udph->check = htons(calculate_checksum(packet.data(), sizeof(struct udphdr) + sizeof(tcp_hdr) + data_size));
+    return packet;
+}
+
+int Reciever::accept() {
+    std::cout << "Reciever::accept()" << std::endl;
+    char packet2[2048];
+    auto packet = std::make_unique<unsigned char [ ]>(1024);
+    socklen_t len = sizeof(m_cliaddr);
+    Interface *interf; 
+    while (1) {
+        // SYN
+        int n = recvfrom(m_sockfd, packet.get(), 1024, 0, (struct sockaddr *)&m_cliaddr, &len);
+        if (n > 0) {
+            interf = new Interface(packet.release());
+            if(interf->ipHeader().daddr != inet_addr(m_addr.c_str())) {
+                continue;
+            }
+            std::cout << "Recieve n -  " << n << std::endl;
+            if (interf->tcpHeader().syn == 1 && interf->tcpHeader().ack == 0) {
+                // SYN-ACK
+                std::cout << "Reciever::accept() - SYN" << std::endl;
+                tcp_hdr tcp;
+                memset(&tcp, 0, sizeof(tcp_hdr));
+                
+                // Setup TCP header for SYN-ACK response
+                tcp.ack = 1;
+                tcp.ack_number = htonl(ntohl(interf->tcpHeader().number) + 1);
+                tcp.number = htonl(1); // Initial sequence number
+                tcp.syn = 1;
+                tcp.from_serv = 1;
+                
+                char *data = "shalom";
+                auto data_len = strlen(data);
+                std::cout << "data_len: " << data_len << std::endl;
+
+                auto SYN_ACK_packet = create_packet(tcp, data, data_len);
+                int j = sendto(m_sockfd, SYN_ACK_packet.data(), sizeof(struct udphdr) + sizeof(struct tcp_hdr) + data_len, 0, (struct sockaddr *)&m_servaddr, len);
+                if (j < 0) {
+                    perror("sendto failed");
+                    std::cout << "sendto failed with error code: " << errno << std::endl;
+                } else {
+                    std::cout << "sendto success - " << n << std::endl;
+                    auto ack_packet = std::make_unique<unsigned char []>(1024);
+                    // int r = recvfrom(m_sockfd, ack_packet.get(), 1024, 0, (struct sockaddr *) &m_cliaddr, &len);
+                    auto interfi = recieve();
+                    if (interfi) {
+                        // interf = new Interface(ack_packet.release());
+                        if (interfi->tcpHeader().ack == 1 && interfi->tcpHeader().syn == 0) {
+                            std::cout << "Connection established" << std::endl;
+                            break;
+                        } else {
+                            std::cout << "Connection not established" << std::endl;
+                        }
+                    }
+                }
+            }
+        } else {
+            std::cout << "else - -" << std::endl;
         }
     }
 }
 
 
+                // char buffik[1024];
+                // struct udphdr * uh = (struct udphdr *)buffik;
+
+                // uh->source = htons(m_port);
+                // uh->dest = htons(m_port);
+                // uh->len = htons(sizeof(struct udphdr) + sizeof(struct tcp_hdr));
+                // uh->check = 0; 
+
+                // struct tcp_hdr* th = (struct tcp_hdr *)(buffik + sizeof(struct udphdr));
+                // th->ack = 1;
+                // th->syn = 1;
+                // th->ack_number = htonl(ntohl(interf->tcpHeader().number) + 1);
+                // th->number = htonl(1); // Initial sequence number
+                
+                // char* data = buffik + sizeof(struct iphdr) + sizeof(struct udphdr);
+
+                // const char* message = "Hello, World!";
+                // int data_len = strlen(message);
+                // strcpy(data, message);
+
+                // uh->check =  htons(calculate_checksum(buffik, sizeof(struct udphdr) + sizeof(tcp_hdr) + data_len));
+                // for(auto c : buffik)
+                // {
+                //     std::cout << c;
+                // }
+                // std::cout << std::endl;
+
+                //int h = sendto(m_sockfd, buffik, sizeof(struct udphdr) + sizeof(struct tcp_hdr) + data_len, 0, (struct sockaddr *)&m_servaddr, len);
 
 
+                    // char ack_packet[BUFFER_SIZE];
 
-
-
-            // std::cout << "Reciever::accept() - n - " << n << std::endl;
-            // std::cout << "Reciever::accept() - syn =  " << interf->tcpHeader().syn << std::endl;
-            // std::cout << "Reciever::accept() - ack =  " << interf->tcpHeader().ack_number << std::endl;
-            // std::cout << "Reciever::accept() - number =  " << ntohl(interf->tcpHeader().number) << std::endl;
-            // std::cout << "Reciever::accept() - syn =  " << interf->retur().tcp.syn << std::endl;
-            // std::cout << "Reciever::accept() - ack =  " << interf->retur().tcp.ack_number << std::endl;
-            // std::cout << "Reciever::accept() - number =  " << ntohs(interf->retur().tcp.number) << std::endl;
+                                    // std::cout << "Reciever::accept() - SYN-ACK" << std::endl;
+                // std::cout << "ack_packet - ";
+                // for (auto c : SYN_ACK_packet) {
+                //     std::cout << c;
+                // }
+                // std::cout << std::endl;
