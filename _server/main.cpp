@@ -12,41 +12,26 @@
 #define PORT 8080
 #define BUFFER_SIZE 1024
 
-// struct tcp_hdr
-// {
-//     uint32_t number;
-//     uint32_t ack_number;
-//     uint16_t len:4, reserved:3, ns:1, cwr:1, ece:1, fin:1, syn:1, rst:1, psh:1, ack:1, urg:1;
-//     uint16_t window_size;
-//     uint16_t SACK;
-// };
 
-// struct pars
-// {
-//     struct iphdr ip;
-//     struct udphdr udp;
-//     struct tcp_hdr tcp;
-// };
-
-void parse_packet(const char *packet, pars &p, char *payload, size_t payload_size) {
-    memcpy(&p, packet, sizeof(pars));
-    std::cout << "test ||||" <<std::endl;
-    std::cout << "tcp->number - " << ntohs(p.tcp.number) << std::endl;
-    std::cout << "tcp->ack_number - " << ntohs(p.tcp.ack_number) << std::endl;
-    std::cout << "tcp->len - " << p.tcp.len << std::endl;
-    std::cout << "tcp->syn - " << p.tcp.syn << std::endl; 
-    std::cout << "test ||||" <<std::endl;
-    if(ntohs(p.tcp.syn) == 1)
-    {
-        //jjj
-    }
-    size_t headers_size = sizeof(pars);
-    size_t payload_len = payload_size - headers_size;
-    memcpy(payload, packet + sizeof(pars), payload_size);
-    std::cout << ntohs(p.ip.tot_len) << std::endl;
-    std::cout << ntohs(p.udp.len) << std::endl;
-    payload[payload_len] = '\0'; 
-}
+// void parse_packet(const char *packet, pars &p, char *payload, size_t payload_size) {
+//     memcpy(&p, packet, sizeof(pars));
+//     std::cout << "test ||||" <<std::endl;
+//     std::cout << "tcp->number - " << ntohs(p.tcp.number) << std::endl;
+//     std::cout << "tcp->ack_number - " << ntohs(p.tcp.ack_number) << std::endl;
+//     std::cout << "tcp->len - " << p.tcp.len << std::endl;
+//     std::cout << "tcp->syn - " << p.tcp.syn << std::endl; 
+//     std::cout << "test ||||" <<std::endl;
+//     if(ntohs(p.tcp.syn) == 1)
+//     {
+//         //jjj
+//     }
+//     size_t headers_size = sizeof(pars);
+//     size_t payload_len = payload_size - headers_size;
+//     memcpy(payload, packet + sizeof(pars), payload_size);
+//     std::cout << ntohs(p.ip.tot_len) << std::endl;
+//     std::cout << ntohs(p.udp.len) << std::endl;
+//     payload[payload_len] = '\0'; 
+// }
 
 int main() {
     Reciever r;
