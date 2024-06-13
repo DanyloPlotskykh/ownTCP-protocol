@@ -28,6 +28,14 @@ struct pars
     struct tcp_hdr tcp;
 };
 
+struct pseudo_header {
+    uint32_t source_address;
+    uint32_t dest_address;
+    uint8_t placeholder;
+    uint8_t protocol;
+    uint16_t udp_length;
+};
+
 class Interface
 {
 private:

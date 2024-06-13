@@ -60,6 +60,7 @@ private:
     int m_sockfd;
     const std::string m_addr;
     int m_port;
+    uint32_t m_number;
     struct sockaddr_in m_servaddr;
     std::array<char, 1024> create_packet(const struct tcp_hdr& tcp, const char* data, int data_size);
 
@@ -68,9 +69,14 @@ private:
 
 public:
     Sender(std::string_view addr, int port);
-    //SYN
+    //SYN-ACK
     bool connect(); 
     //SACK
     bool send(std::initializer_list<char *> packets);
+    //no-sack
+    bool send(const char* packet);
+
+    //in future FIN
+    // ?type? fin();
 
 };
