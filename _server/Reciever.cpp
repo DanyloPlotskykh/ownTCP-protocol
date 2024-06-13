@@ -3,6 +3,8 @@
 #include <cstring>
 #include <memory>
 #include <iostream>
+#include <chrono>
+#include <random>
 
 #define PORT 8080
 
@@ -31,7 +33,7 @@ tcp_hdr& tcp_hdr::operator=(const tcp_hdr& other)
     return *this;
 }
 
-unsigned short calculate_checksum(void* b, size_t len)
+static unsigned short calculate_checksum(void* b, size_t len)
 {
     unsigned short *buf = reinterpret_cast<unsigned short *>(b);
     unsigned int sum = 0;
@@ -45,6 +47,57 @@ unsigned short calculate_checksum(void* b, size_t len)
     sum += (sum >> 16);
     result = ~sum;
     return result;
+}
+
+static std::string ip_to_string(uint32_t ip) {
+    struct in_addr ip_addr;
+    ip_addr.s_addr = ip;
+    return inet_ntoa(ip_addr);
+}
+
+static bool verify_checksum(const char* packet, int packet_len, const char* src_ip, const char* dest_ip) 
+{
+    if (n < 0)
+        return false;
+    
+    struct udphdr * ud = (struct udphdr *)(packet + sizeof(iphdr));
+    unsigned short recieved = ud->check;
+    std::cout << "verify recived checksum - " << htons(recieved) << std::endl;
+    struct tcp_hdr *tc = (struct tcp_hdr *)(packet + sizeof(iphdr) + sizeof(udphdr));   
+    std::cout << "verify received len - " << htons(ud->len) << std::endl;
+
+    pseudo_header psh;
+    psh.source_address = inet_addr(src_ip);
+    psh.dest_address = inet_addr(dest_ip);
+    psh.placeholder = 0;
+    psh.protocol = IPPROTO_UDP;
+    psh.udp_length = htons(packet_len);
+
+    int psize = sizeof(udphdr) + sizeof(pseudo_header) + sizeof(tcp_hdr) + packet_len;
+    char * buff = new char[psize];
+
+    memcpy(buff, ud, sizeof(udphdr));
+    memcpy(buff + sizeof(udphdr), &psh, sizeof(pseudo_header));
+    memcpy(buff + sizeof(udphdr) + sizeof(pseudo_header), tc, sizeof(tcp_hdr));
+    memcpy(buff + sizeof(udphdr) + sizeof(pseudo_header) + sizeof(tcp_hdr), packet, packet_len);
+
+    auto lenn = strlen(buff);
+
+    unsigned short calculated_checksus = calculate_checksum(buff, lenn);
+    std::cout << "verify calculated checksum - " << calculated_checksus << std::endl;
+
+    return (calculated_checksus == recieved);
+}
+
+static uint32_t generate_isn() {
+    auto now = std::chrono::high_resolution_clock::now();
+    auto duration = now.time_since_epoch();
+    uint64_t nanos = std::chrono::duration_cast<std::chrono::nanoseconds>(duration).count();
+
+    std::mt19937_64 rng(nanos);
+    std::uniform_int_distribution<uint32_t> dist(0, UINT32_MAX);
+
+    return dist(rng);
 }
 
 Interface::Interface(const unsigned char* packet) : trueOrFalseCond(false)
@@ -124,12 +177,6 @@ Reciever::~Reciever()
     std::cout << "Reciever::~Reciever()" << std::endl;
 }
 
-static std::string ip_to_string(uint32_t ip) {
-    struct in_addr ip_addr;
-    ip_addr.s_addr = ip;
-    return inet_ntoa(ip_addr);
-}
-
 Interface* Reciever::recieve() {
     socklen_t addrlen = sizeof(m_cliaddr);
     char buffer[1024];
@@ -179,14 +226,14 @@ std::array<char, 1024> Reciever::create_packet(const struct tcp_hdr& tcp, const 
 int Reciever::accept() {
     std::cout << "Reciever::accept()" << std::endl;
     char packet2[2048];
-    auto packet = std::make_unique<unsigned char [ ]>(1024);
+    char packet[1024];
     socklen_t len = sizeof(m_cliaddr);
     Interface *interf; 
     while (1) {
         // SYN
-        int n = recvfrom(m_sockfd, packet.get(), 1024, 0, (struct sockaddr *)&m_cliaddr, &len);
-        if (n > 0) {
-            interf = new Interface(packet.release());
+        int n = recvfrom(m_sockfd, packet, sizeof(packet) , 0, (struct sockaddr *)&m_cliaddr, &len);
+        if (verify_checksum(packet, n, "127.0.0.1", "127.0.0.1")) {
+            interf = new Interface((unsigned char *)packet);
             if(interf->ipHeader().daddr != inet_addr(m_addr.c_str())) {
                 continue;
             }
@@ -200,7 +247,7 @@ int Reciever::accept() {
                 // Setup TCP header for SYN-ACK response
                 tcp.ack = 1;
                 tcp.ack_number = htonl(ntohl(interf->tcpHeader().number) + 1);
-                tcp.number = htonl(1); // Initial sequence number
+                tcp.number = generate_isn(); // Initial sequence number
                 tcp.syn = 1;
                 tcp.from_serv = 1;
                 
@@ -274,3 +321,21 @@ int Reciever::accept() {
                 //     std::cout << c;
                 // }
                 // std::cout << std::endl;
+
+                    // char buffer[BUFFER_SIZE];
+    // struct udphdr * ud = (struct udphdr *)(packet + sizeof(iphdr));
+    // struct tcp_hdr * tc = (struct tcp_hdr *)(packet + sizeof(iphdr) + sizeof(udphdr));
+
+    // unsigned short recieved = ud->check;
+
+    // pseudo_header ps;
+
+    // return true;
+    // Interface intet((unsigned char *)packet);
+    // char * buff = (char *)(packet + sizeof(struct iphdr));
+        // auto dest_port = udh->dest;
+    // char dest_port_str[6];
+    // snprintf(dest_port_str, sizeof(dest_port_str), "%u", dest_port);
+    // std::cout << "dest_port_str - " << dest_port_str << std::endl;
+    // std::cout << "verify recived ip - " << ip_to_string(udh->dest) << std::endl;
+    // std::cout << "verify recived ip interface - " << ip_to_string(intet.udpHeader().dest) << std::endl;
