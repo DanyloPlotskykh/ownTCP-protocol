@@ -39,9 +39,10 @@ struct pseudo_header {
 class Interface
 {
 private:
-    std::array<char, 1024> m_buffer;
+    std::array<char, BUFFER_SIZE> m_buffer;
     pars p;
     bool trueOrFalseCond;
+    int m_bytes;
 public:
     explicit Interface(const unsigned char* packet);
     ~Interface();
@@ -50,6 +51,7 @@ public:
     tcp_hdr tcpHeader() const;
     char * data() const;
 
+    void setByte(int n);
     Interface& operator=(const bool other);
     operator bool() const;
     bool operator!() const;
@@ -61,16 +63,17 @@ private:
     std::string m_addr;
     std::queue<Interface> m_window;
     int ack;
-    int byte;
+    int m_number;
     int m_sockfd;
     int m_port;
     struct sockaddr_in m_servaddr, m_cliaddr;
-    std::array<char, 1024> create_packet(const struct tcp_hdr& tcp, const char* data, int data_size);
+    std::array<char, BUFFER_SIZE> create_packet(const struct tcp_hdr& tcp, const char* data, int data_size);
 
 private:
     Interface* recieve();
 public:
     Reciever();
     ~Reciever();
-    int accept();
+    bool connect();
+    void accept();
 };
