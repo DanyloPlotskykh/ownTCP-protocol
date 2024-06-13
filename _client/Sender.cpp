@@ -130,11 +130,7 @@ Sender::Sender(std::string_view addr, int port) : m_addr(addr), m_port(port),
 
 std::array<char, 1024> Sender::create_packet(const struct tcp_hdr& tcp, const char* data, int data_size)
 {
-    // auto lenn = strlen(data);
-
-    // std::cout << "checksum of str - " << calculate_checksum((void *)data, lenn) << std::endl;
     std::array<char, 1024> packet;
-
     struct udphdr *udph = (struct udphdr *)(packet.data());
     udph->source = htons(m_port);
     udph->dest = htons(m_port);
@@ -198,7 +194,7 @@ bool Sender::connect()
     const char *message = "Hello, Server!";
     int message_len = strlen(message);
     tcp_hdr tcp;
-    tcp.number = m_number;
+    tcp.number = htons(m_number);
     tcp.ack_number = 0;
     tcp.syn = 1;
     tcp.ack = 0;
