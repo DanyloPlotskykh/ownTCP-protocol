@@ -134,6 +134,7 @@ std::array<char, 1024> Sender::create_packet(const struct tcp_hdr& tcp, const ch
 
     // std::cout << "checksum of str - " << calculate_checksum((void *)data, lenn) << std::endl;
     std::array<char, 1024> packet;
+
     struct udphdr *udph = (struct udphdr *)(packet.data());
     udph->source = htons(m_port);
     udph->dest = htons(m_port);
