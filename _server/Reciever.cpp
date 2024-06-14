@@ -5,6 +5,8 @@
 #include <iostream>
 #include <chrono>
 #include <random>
+#include <iterator>
+#include <thread>
 
 #define PORT 8080
 
@@ -47,12 +49,6 @@ static unsigned short calculate_checksum(void* b, size_t len)
     sum += (sum >> 16);
     result = ~sum;
     return result;
-}
-
-static std::string ip_to_string(uint32_t ip) {
-    struct in_addr ip_addr;
-    ip_addr.s_addr = ip;
-    return inet_ntoa(ip_addr);
 }
 
 static bool verify_checksum(const char* packet, int packet_len, const char* src_ip, const char* dest_ip) 
@@ -103,8 +99,7 @@ static uint32_t generate_isn() {
 Interface::Interface(const unsigned char* packet) : trueOrFalseCond(false), m_bytes(0)
 {
     std::cout << "Interface::Interface()" << std::endl;
-    // m_buffer = packet;
-    memcpy(&p, packet, sizeof(pars));
+    memcpy(m_buffer.data(), packet, m_buffer.size());
 }
 
 Interface::~Interface()
@@ -112,23 +107,23 @@ Interface::~Interface()
     std::cout << "Interface::~Interface()" << std::endl;
 }
 
-iphdr Interface::ipHeader() const
+iphdr * Interface::ipHeader()
 {
-    return p.ip;
+    return reinterpret_cast<iphdr * >(m_buffer.begin());
 }
 
-udphdr Interface::udpHeader() const
+udphdr * Interface::udpHeader() 
 {
-    return p.udp;
+    return reinterpret_cast<udphdr *>(std::next(m_buffer.begin(), sizeof(iphdr)));
 }
-tcp_hdr Interface::tcpHeader() const
+tcp_hdr * Interface::tcpHeader() 
 {
-    return p.tcp;
+    return reinterpret_cast<tcp_hdr *>(std::next(m_buffer.begin(), sizeof(iphdr) + sizeof(udphdr)));
 }
 
-char * Interface::data() const
+char * Interface::data()
 {
-    // return (char *)p.ip + sizeof(struct iphdr) + sizeof(struct udphdr);
+    return reinterpret_cast<char *>(m_buffer.begin() + sizeof(iphdr) + sizeof(udphdr) + sizeof(tcp_hdr));
 }
 
 Interface& Interface::operator=(const bool other)
@@ -152,7 +147,17 @@ void Interface::setByte(int n)
     this->m_bytes = n;
 }
 
-Reciever::Reciever() : m_addr("127.0.0.1"), ack(0), m_number(0), m_sockfd(-1), m_port(8080), 
+std::array<char, BUFFER_SIZE> Interface::getPacket() const
+{
+    return m_buffer;
+} 
+
+int Interface::getByte() const 
+{
+    return m_bytes;
+}
+
+Reciever::Reciever() : m_addr("127.0.0.1"), ack(0), m_number(0), m_sockfd(-1), m_port(8080), m_len(0),
     m_sizeheaders(sizeof(struct udphdr) + sizeof(struct tcp_hdr))
 {
     std::cout << "Reciever::Reciever()" << std::endl;
@@ -193,7 +198,7 @@ Interface* Reciever::recieve() {
         if(i > 0)
         {
             inter = new Interface((const unsigned char *)buffer);
-            if(inter->tcpHeader().from_serv == 0 && verify_checksum(buffer, i, m_addr.c_str(), m_addr.c_str()))
+            if(inter->tcpHeader()->from_serv == 0)
             {
                 std::cout << "cool\n";
                 inter->setByte(i);
@@ -248,49 +253,65 @@ std::array<char, BUFFER_SIZE> Reciever::create_packet(const struct tcp_hdr& tcp,
 bool Reciever::connect() {
     std::cout << "Reciever::accept()" << std::endl;
     socklen_t len = sizeof(m_cliaddr);
+    m_len = len;
     while (1) {
         // SYN
         auto interf = recieve();
-        if (interf) {
-            if(interf->ipHeader().daddr != inet_addr(m_addr.c_str())) {
-                continue;
-            }
-            if (interf->tcpHeader().syn == 1 && interf->tcpHeader().ack == 0) {
-                
-                std::cout << "Reciever::accept() - SYN" << std::endl;
-                m_number = htons(interf->tcpHeader().number);
+        if (interf) 
+        {
+            if(interf->ipHeader()->daddr != inet_addr(m_addr.c_str())) { continue; }
+            if(verify_checksum(interf->getPacket().data(), interf->getByte(), m_addr.c_str(), m_addr.c_str()))
+            {
+                if (interf->tcpHeader()->syn == 1 && interf->tcpHeader()->ack == 0) 
+                {    
+                    std::cout << "Reciever::accept() - SYN" << std::endl;
+                    std::cout << "test data - " << interf->data() <<std::endl;
+                    m_number = htons(interf->tcpHeader()->number);
 
-                // SYN-ACK
-                tcp_hdr tcp;
-                memset(&tcp, 0, sizeof(tcp_hdr));
-                
-                // Setup TCP header for SYN-ACK response
-                tcp.ack = 1;
-                tcp.ack_number = htonl(ntohl(interf->tcpHeader().number) + 1);
-                tcp.number = generate_isn(); // Initial sequence number
-                tcp.syn = 1;
-                tcp.from_serv = 1;
-                
-                char *data = "shalom";
-                auto data_len = strlen(data);
-                std::cout << "data_len: " << data_len << std::endl;
+                    // SYN-ACK
+                    tcp_hdr tcp;
+                    memset(&tcp, 0, sizeof(tcp_hdr));
+                    
+                    // Setup TCP header for SYN-ACK response
+                    tcp.ack = 1;
+                    tcp.ack_number = htonl(ntohl(interf->tcpHeader()->number) + 1);
+                    tcp.number = generate_isn(); // Initial sequence number
+                    tcp.syn = 1;
+                    tcp.from_serv = 1;
+                    
+                    char *data = "shalom";
+                    auto data_len = strlen(data);
+                    std::cout << "data_len: " << data_len << std::endl;
 
-                auto SYN_ACK_packet = create_packet(tcp, data, data_len);
-                int j = sendto(m_sockfd, SYN_ACK_packet.data(), sizeof(struct udphdr) + sizeof(struct tcp_hdr) + data_len, 0, (struct sockaddr *)&m_servaddr, len);
-                if (j < 0) {
-                    perror("sendto failed");
-                    std::cout << "sendto failed with error code: " << errno << std::endl;
-                } else {
-                    std::cout << "sendto success - " << j << std::endl;
-                    //ACK
-                    auto interfi = recieve();
-                    if (interfi) {
-                        if (interfi->tcpHeader().ack == 1 && interfi->tcpHeader().syn == 0) {
-                            std::cout << "Connection established" << std::endl;
-                            return true;
-                        } else {
-                            std::cout << "Connection not established" << std::endl;
-                            // continue;
+                    auto SYN_ACK_packet = create_packet(tcp, data, data_len);
+                    int j = sendto(m_sockfd, SYN_ACK_packet.data(), sizeof(struct udphdr) + sizeof(struct tcp_hdr) + data_len, 0, (struct sockaddr *)&m_servaddr, len);
+                    if (j < 0) 
+                    {
+                        perror("sendto failed");
+                        std::cout << "sendto failed with error code: " << errno << std::endl;
+                    } 
+                    else 
+                    {
+                        std::cout << "sendto success - " << j << std::endl;
+                        //ACK
+                        auto interfi = recieve();
+                        if(!verify_checksum(interfi->getPacket().data(), interfi->getByte(), m_addr.c_str(), m_addr.c_str()))
+                        {
+                            std::cout << "!checksum ack" << std::endl; 
+                            break;
+                        }  
+                        if (interfi) 
+                        {
+                            if (interfi->tcpHeader()->ack == 1 && interfi->tcpHeader()->syn == 0) 
+                            {
+                                std::cout << "Connection established" << std::endl;
+                                return true;
+                            } 
+                            else 
+                            {
+                                std::cout << "Connection not established" << std::endl;
+                                continue;
+                            }
                         }
                     }
                 }
@@ -305,9 +326,36 @@ bool Reciever::connect() {
 
 void Reciever::accept()
 {
-    //implement no-sack transport data;
-    //->data
-    //<-ack   
+    std::cout << "Reciever::accept() " << std::endl;
+    // if(!ifConnected)
+    // {
+    //     std::cout << "server has not connected to any client yet" << std::endl;
+    //     return;
+    // }
+    auto interf = recieve();
+    if(verify_checksum(interf->getPacket().data(), interf->getByte(), m_addr.c_str(), m_addr.c_str())) 
+    {
+        std::cout << "Recieved from client - " <<  interf->data() << std::endl;
+
+        tcp_hdr tc;
+        tc.ack = 1;
+        tc.syn = 0;
+        tc.from_serv = 1;
+        tc.ack_number = htons((interf->tcpHeader()->ack_number) + 1);
+        tc.number = htons((interf->tcpHeader()->number) + 1);
+
+        auto packet = create_packet(tc, nullptr, 0);
+
+        auto n = sendto(m_sockfd, packet.data(), m_sizeheaders,0 ,(struct sockaddr *)&m_cliaddr, m_len);
+        if(n < 0)
+        {
+            std::cout << "ack was not sended - accept() " << std::endl;
+        }
+    }
+    else
+    {
+        //smth
+    }
 }
                     //auto ack_packet = std::make_unique<unsigned char []>(1024);
 

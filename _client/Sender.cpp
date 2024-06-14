@@ -2,6 +2,7 @@
 #include <cstring>
 #include <chrono>
 #include <random>
+#include <thread>
 
 #define PORT 8080
 #define SERVER_IP "127.0.0.1"
@@ -108,7 +109,7 @@ bool Interface::operator!() const
     return !trueOrFalseCond;
 }
 
-Sender::Sender(std::string_view addr, int port) : m_addr(addr), m_port(port), 
+Sender::Sender(std::string_view addr, int port) : m_addr(addr), m_port(port), m_ackNumber(0),
         m_sizeheaders(sizeof(struct udphdr)+ sizeof(struct tcp_hdr)), 
         m_number(generate_isn())
 
@@ -159,6 +160,8 @@ std::array<char, 1024> Sender::create_packet(const struct tcp_hdr& tcp, const ch
 
     memcpy(packet.data() + sizeof(struct udphdr) + sizeof(tcp_hdr), data, data_size);
     udph->check = htons(calculate_checksum(buff, lenn)); 
+    char * d = "ddddddd";
+    memcpy(packet.data()  + sizeof(struct udphdr) + sizeof(tcp_hdr) + data_size, d, sizeof(d));
     std::cout << "calc - " << htons(udph->check) << std::endl;
     return packet;
 }
@@ -245,7 +248,28 @@ bool Sender::connect()
 
 bool Sender::send(const char * packet)
 {
-    return true;
+    // for timer
+    // std::therad th();
+    std::cout << "Sender::send()" << std::endl;
+    auto data_len = strlen(packet);
+    tcp_hdr tc;
+    tc.from_serv = 0;
+    tc.ack = 0;
+    tc.number = htons(m_number);
+    tc.ack_number = htons(m_ackNumber);
+    tc.SACK = 0;
+    auto pack = create_packet(tc, std::move(packet), sizeof(packet));
+
+    int n = sendto(m_sockfd, pack.data(), m_sizeheaders + data_len, 0, (struct sockaddr *)&m_servaddr, sizeof(m_servaddr));
+    if(n > 0)
+    {
+        std::cout << "send Success " << std::endl;
+        auto packet = recieve();
+        if(packet->tcpHeader().ack == 1)
+        {
+            std::cout << "packet has been ack " << std::endl;
+        }
+    }
 }
 
     // tcp_hdr *tcp = (struct tcp_hdr *) (m_buffer + sizeof(struct iphdr) + sizeof(struct udphdr));
