@@ -61,6 +61,7 @@ private:
     const std::string m_addr;
     int m_port;
     uint32_t m_number;
+    uint32_t m_ackNumber;
     struct sockaddr_in m_servaddr;
     std::array<char, 1024> create_packet(const struct tcp_hdr& tcp, const char* data, int data_size);
 

@@ -20,13 +20,6 @@ struct tcp_hdr
 
     tcp_hdr& operator=(const tcp_hdr& other);
 };
- 
-struct pars
-{
-    struct iphdr ip;
-    struct udphdr udp;
-    struct tcp_hdr tcp;
-};
 
 struct pseudo_header {
     uint32_t source_address;
@@ -40,18 +33,20 @@ class Interface
 {
 private:
     std::array<char, BUFFER_SIZE> m_buffer;
-    pars p;
     bool trueOrFalseCond;
     int m_bytes;
 public:
     explicit Interface(const unsigned char* packet);
     ~Interface();
-    iphdr ipHeader() const;
-    udphdr udpHeader() const;
-    tcp_hdr tcpHeader() const;
-    char * data() const;
-
+    iphdr * ipHeader();
+    udphdr * udpHeader();
+    tcp_hdr * tcpHeader();
+    char * data();
+    
+    std::array<char, BUFFER_SIZE> getPacket() const;
     void setByte(int n);
+    int getByte() const;
+    
     Interface& operator=(const bool other);
     operator bool() const;
     bool operator!() const;
@@ -67,6 +62,7 @@ private:
     int m_sockfd;
     int m_port;
     struct sockaddr_in m_servaddr, m_cliaddr;
+    socklen_t m_len;
     std::array<char, BUFFER_SIZE> create_packet(const struct tcp_hdr& tcp, const char* data, int data_size);
 
 private:
