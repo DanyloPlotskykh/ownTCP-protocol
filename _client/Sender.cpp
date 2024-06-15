@@ -3,6 +3,9 @@
 #include <chrono>
 #include <random>
 #include <thread>
+#include <mutex>
+#include <condition_variable>
+
 
 #define PORT 8080
 #define SERVER_IP "127.0.0.1"
@@ -59,17 +62,12 @@ static uint32_t generate_isn() {
     return dist(rng);
 }
 
-Interface::Interface() : trueOrFalseCond(false){}
+Interface::Interface() : trueOrFalseCond(false), m_bytes(0){}
 
-Interface::Interface(const char* packet) : trueOrFalseCond(false)
+Interface::Interface(const unsigned char* packet) : trueOrFalseCond(false), m_bytes(0)
 {
     std::cout << "Interface::Interface()" << std::endl;
-    memcpy(&p, packet, sizeof(pars));
-}
-
-iphdr Interface::ipHeader() const
-{
-    return p.ip;
+    memcpy(m_buffer.data(), packet, m_buffer.size());
 }
 
 Interface::~Interface()
@@ -77,14 +75,23 @@ Interface::~Interface()
     std::cout << "Interface::~Interface()" << std::endl;
 }
 
-udphdr Interface::udpHeader() const
+iphdr * Interface::ipHeader()
 {
-    return p.udp;
+    return reinterpret_cast<iphdr * >(m_buffer.begin());
 }
 
-tcp_hdr Interface::tcpHeader() const 
+udphdr * Interface::udpHeader() 
 {
-    return p.tcp;
+    return reinterpret_cast<udphdr *>(std::next(m_buffer.begin(), sizeof(iphdr)));
+}
+tcp_hdr * Interface::tcpHeader() 
+{
+    return reinterpret_cast<tcp_hdr *>(std::next(m_buffer.begin(), sizeof(iphdr) + sizeof(udphdr)));
+}
+
+char * Interface::data()
+{
+    return reinterpret_cast<char *>(m_buffer.begin() + sizeof(iphdr) + sizeof(udphdr) + sizeof(tcp_hdr));
 }
 
 Interface& Interface::operator=(const bool other)
@@ -95,7 +102,7 @@ Interface& Interface::operator=(const bool other)
 
 Interface& Interface::operator=(const char * other)
 {
-    memcpy(&(this->p), other, sizeof(pars));
+    memcpy(&(this->m_buffer), other, sizeof(pars));
     return *this;
 }
 
@@ -110,7 +117,7 @@ bool Interface::operator!() const
 }
 
 Sender::Sender(std::string_view addr, int port) : m_addr(addr), m_port(port), m_ackNumber(0),
-        m_sizeheaders(sizeof(struct udphdr)+ sizeof(struct tcp_hdr)), 
+        m_sizeheaders(sizeof(struct udphdr)+ sizeof(struct tcp_hdr)), stop_timer(false), isStoped(false),
         m_number(generate_isn())
 
 {
@@ -126,6 +133,12 @@ Sender::Sender(std::string_view addr, int port) : m_addr(addr), m_port(port), m_
     if (inet_pton(AF_INET, SERVER_IP, &m_servaddr.sin_addr) <= 0) {
         perror("Invalid address/ Address not supported");
         exit(EXIT_FAILURE);
+    }
+
+    m_tv.tv_sec = 5;
+    m_tv.tv_usec = 0;
+    if (setsockopt(m_sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&m_tv, sizeof(m_tv)) < 0) {
+        std::cerr << "Error setting socket options" << std::endl;
     }
 }
 
@@ -151,18 +164,18 @@ std::array<char, 1024> Sender::create_packet(const struct tcp_hdr& tcp, const ch
 
     char * buff = new char[psize];
 
-    memcpy(buff, udph, sizeof(udphdr));
-    memcpy(buff + sizeof(udphdr), &psh, sizeof(pseudo_header));
-    memcpy(buff + sizeof(udphdr) + sizeof(pseudo_header), tcph, sizeof(tcp_hdr));
-    memcpy(buff + sizeof(udphdr) + sizeof(pseudo_header) + sizeof(tcp_hdr), data, data_size);
+    memcpy(buff, &psh, sizeof(pseudo_header));
+    memcpy(buff + sizeof(pseudo_header), udph, sizeof(udphdr));
+    memcpy(buff + sizeof(pseudo_header) + sizeof(udphdr), tcph, sizeof(tcp_hdr));
+    memcpy(buff + sizeof(pseudo_header) + sizeof(udphdr) + sizeof(tcp_hdr), data, data_size);
 
     int lenn = strlen(buff);
 
     memcpy(packet.data() + sizeof(struct udphdr) + sizeof(tcp_hdr), data, data_size);
-    udph->check = htons(calculate_checksum(buff, lenn)); 
-    char * d = "ddddddd";
-    memcpy(packet.data()  + sizeof(struct udphdr) + sizeof(tcp_hdr) + data_size, d, sizeof(d));
-    std::cout << "calc - " << htons(udph->check) << std::endl;
+    udph->check = htons(calculate_checksum((void *)buff, lenn)); 
+    // char * d = "ddddddd";
+    // memcpy(packet.data()  + sizeof(struct udphdr) + sizeof(tcp_hdr) + data_size, d, sizeof(d));
+    std::cout << "calc - " << ntohs(udph->check) << std::endl;
     return packet;
 }
 
@@ -176,8 +189,8 @@ Interface* Sender::recieve() {
         int i = recvfrom(m_sockfd, buffer, sizeof(buffer), 0, (struct sockaddr *)&m_servaddr, &addrlen);
         if(i > 0)
         {
-            inter = new Interface((const char *)buffer);
-            if(inter->tcpHeader().from_serv == 1)
+            inter = new Interface((unsigned char *)buffer);
+            if(inter->tcpHeader()->from_serv == 1)
             {
                 std::cout << "cool\n";
                 return inter;
@@ -185,6 +198,7 @@ Interface* Sender::recieve() {
         }
         else
         {
+            if(isStoped){break;}
             std::cout << "nooo\n";
         }
     }
@@ -216,28 +230,23 @@ bool Sender::connect()
     auto interface = recieve();
     if (interface) {
         std::cout << "Server reply received." << std::endl;
-        std::cout << "tcp-syn, ack - " << (interface->tcpHeader().syn) << " " << (interface->tcpHeader().ack) << std::endl;
-        if (interface->tcpHeader().syn == 1 && interface->tcpHeader().ack == 1) {
+        std::cout << "tcp-syn, ack - " << (interface->tcpHeader()->syn) << " " << (interface->tcpHeader()->ack) << std::endl;
+        if (interface->tcpHeader()->syn == 1 && interface->tcpHeader()->ack == 1) {
             std::cout << "Received SYN-ACK from server." << std::endl;
             // Send ACK to complete three-way handshake
-            std::cout << "1" << std::endl;
             tcp_hdr ack_tcp;
             ack_tcp.ack = 1;
             ack_tcp.number = 0;
-            ack_tcp.ack_number = htonl(ntohl(interface->tcpHeader().number) + 1);
+            ack_tcp.ack_number = htonl(ntohl(interface->tcpHeader()->number) + 1);
             ack_tcp.syn = 0;
             ack_tcp.from_serv = 0;
-            std::cout << "1" << std::endl;
 
             auto ack_packet = create_packet(ack_tcp, nullptr, 0);
-            std::cout << "1" << std::endl;
-
             if (sendto(m_sockfd, ack_packet.data(), m_sizeheaders, 0, (struct sockaddr *)&m_servaddr, sizeof(m_servaddr)) < 0) {
                 perror("sendto failed");
             } else {
                 std::cout << "ACK sent to server." << std::endl;
             }
-            std::cout << "1" << std::endl;
         }
     } else {
         perror("recvfrom failed");
@@ -246,10 +255,27 @@ bool Sender::connect()
     return true;
 }
 
+void timer(std::atomic<bool>& stop_timer, std::condition_variable& cv, std::mutex& cv_m, std::atomic<bool>& isStoped)
+{
+    std::unique_lock<std::mutex> lk(cv_m);
+    while (true) {
+        if (cv.wait_for(lk, std::chrono::seconds(15), [&]{ return stop_timer.load(); })) {
+            std::cout << "Timer stopped!\n";
+            break;
+        } else {
+            isStoped = true;
+            break;
+        }
+    }
+}
+
+//no sack implementation
 bool Sender::send(const char * packet)
 {
     // for timer
-    // std::therad th();
+    std::condition_variable cv;
+    std::mutex cv_m;
+    std::thread timerThread([this, &cv, &cv_m]{timer(this->stop_timer, cv, cv_m, this->isStoped);});
     std::cout << "Sender::send()" << std::endl;
     auto data_len = strlen(packet);
     tcp_hdr tc;
@@ -264,12 +290,24 @@ bool Sender::send(const char * packet)
     if(n > 0)
     {
         std::cout << "send Success " << std::endl;
-        auto packet = recieve();
-        if(packet->tcpHeader().ack == 1)
+        auto interf = recieve();
+
+        if(interf->tcpHeader()->ack == 1 && ntohs(interf->tcpHeader()->ack_number) - m_ackNumber == 1)
         {
+            std::cout << "tryin to stop timer " << std::endl;
+            stop_timer = true;
+            cv.notify_one();
             std::cout << "packet has been ack " << std::endl;
         }
+        else
+        {
+            std::cout << "else " << std::endl;
+        }
+
+        if(!stop_timer){ std::cout << "resending ...\n"; send(packet); }
     }
+    timerThread.join();
+    (!stop_timer) ? send(packet) : stop_timer = false;
 }
 
     // tcp_hdr *tcp = (struct tcp_hdr *) (m_buffer + sizeof(struct iphdr) + sizeof(struct udphdr));

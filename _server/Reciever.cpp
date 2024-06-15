@@ -72,14 +72,14 @@ static bool verify_checksum(const char* packet, int packet_len, const char* src_
     int psize = sizeof(udphdr) + sizeof(pseudo_header) + sizeof(tcp_hdr) + packet_len;
     char * buff = new char[psize];
 
-    memcpy(buff, ud, sizeof(udphdr));
-    memcpy(buff + sizeof(udphdr), &psh, sizeof(pseudo_header));
-    memcpy(buff + sizeof(udphdr) + sizeof(pseudo_header), tc, sizeof(tcp_hdr));
-    memcpy(buff + sizeof(udphdr) + sizeof(pseudo_header) + sizeof(tcp_hdr), packet, packet_len);
+    memcpy(buff, &psh, sizeof(pseudo_header));
+    memcpy(buff + sizeof(pseudo_header), ud, sizeof(udphdr));
+    memcpy(buff + sizeof(pseudo_header) + sizeof(udphdr), tc, sizeof(tcp_hdr));
+    memcpy(buff + sizeof(pseudo_header) + sizeof(udphdr) + sizeof(tcp_hdr), packet, packet_len);
 
     auto lenn = strlen(buff);
 
-    unsigned short calculated_checksus = calculate_checksum(buff, lenn);
+    unsigned short calculated_checksus = calculate_checksum((void *)buff, lenn);
     std::cout << "verify calculated checksum - " << calculated_checksus << std::endl;
 
     return (calculated_checksus == htons(recieved));

@@ -5,6 +5,8 @@
 #include <netinet/udp.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
+#include <fcntl.h>
+#include <atomic>
 
 struct tcp_hdr
 {
@@ -37,15 +39,16 @@ class Interface
 {
 private:
     std::array<char, 1024> m_buffer;
-    pars p;
     bool trueOrFalseCond;
+    int m_bytes;
 public:
-    explicit Interface(const char* packet);
+    explicit Interface(const unsigned char* packet);
     Interface();
     ~Interface();
-    iphdr ipHeader() const;
-    udphdr udpHeader() const;
-    tcp_hdr tcpHeader() const;
+    iphdr * ipHeader();
+    udphdr * udpHeader();
+    tcp_hdr * tcpHeader();
+    char * data();
 
     Interface& operator=(const bool other);
     Interface& operator=(const char * other);
@@ -64,6 +67,9 @@ private:
     uint32_t m_ackNumber;
     struct sockaddr_in m_servaddr;
     std::array<char, 1024> create_packet(const struct tcp_hdr& tcp, const char* data, int data_size);
+    struct timeval m_tv;
+    std::atomic<bool> stop_timer;
+    std::atomic<bool> isStoped;
 
 private:
     Interface* recieve();
