@@ -18,6 +18,7 @@ struct tcp_hdr
     uint16_t SACK;
 
     tcp_hdr& operator=(const tcp_hdr& other);
+    tcp_hdr();
 };
 
 struct pars

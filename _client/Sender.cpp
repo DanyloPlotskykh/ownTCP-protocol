@@ -35,6 +35,26 @@ tcp_hdr& tcp_hdr::operator=(const tcp_hdr& other)
     return *this;
 }
 
+tcp_hdr::tcp_hdr() {
+    std::cout << "tcp_hdr::tcp_hdr()" << std::endl;
+    number = 0;
+    ack_number = 0;
+    len = 0;
+    reserved = 0;
+    ns = 0;
+    cwr = 0;
+    ece = 0;
+    fin = 0;
+    syn = 0;
+    rst = 0;
+    psh = 0;
+    ack = 0;
+    urg = 0;
+    window_size = 0;
+    from_serv = 0;
+    SACK = 0;
+}
+
 static unsigned short calculate_checksum(void* b, size_t len)
 {
     unsigned short *buf = reinterpret_cast<unsigned short *>(b);
@@ -145,10 +165,12 @@ Sender::Sender(std::string_view addr, int port) : m_addr(addr), m_port(port), m_
 std::array<char, 1024> Sender::create_packet(const struct tcp_hdr& tcp, const char* data, int data_size)
 {
     std::array<char, 1024> packet;
+    packet.fill('\0');
+    std::cout << "test str lenght data - " << data_size << std::endl;
     struct udphdr *udph = (struct udphdr *)(packet.data());
     udph->source = htons(m_port);
     udph->dest = htons(m_port);
-    udph->len = htons(sizeof(struct udphdr) + sizeof(struct tcp_hdr));
+    udph->len = htons(sizeof(struct udphdr) + sizeof(struct tcp_hdr) + data_size);
     udph->check = 0; 
     struct tcp_hdr *tcph = (struct tcp_hdr *)(packet.data() + sizeof(struct udphdr));
     *tcph = tcp;
@@ -160,9 +182,10 @@ std::array<char, 1024> Sender::create_packet(const struct tcp_hdr& tcp, const ch
     psh.protocol = IPPROTO_UDP;
     psh.udp_length = htons(sizeof(struct udphdr) + sizeof(struct tcp_hdr) + data_size);
 
-    int psize = sizeof(udphdr) + sizeof(pseudo_header) + sizeof(tcp_hdr) + data_size;
+    int psize = sizeof(struct udphdr) + sizeof(struct pseudo_header) + sizeof(struct tcp_hdr) + data_size;
 
     char * buff = new char[psize];
+    memset(buff, 0, psize);
 
     memcpy(buff, &psh, sizeof(pseudo_header));
     memcpy(buff + sizeof(pseudo_header), udph, sizeof(udphdr));
@@ -172,10 +195,8 @@ std::array<char, 1024> Sender::create_packet(const struct tcp_hdr& tcp, const ch
     int lenn = strlen(buff);
 
     memcpy(packet.data() + sizeof(struct udphdr) + sizeof(tcp_hdr), data, data_size);
-    udph->check = htons(calculate_checksum((void *)buff, lenn)); 
-    // char * d = "ddddddd";
-    // memcpy(packet.data()  + sizeof(struct udphdr) + sizeof(tcp_hdr) + data_size, d, sizeof(d));
-    std::cout << "calc - " << ntohs(udph->check) << std::endl;
+    udph->check = htons(calculate_checksum(buff, psize)); 
+    std::cout << "checksum - " << ntohs(udph->check) << std::endl;
     return packet;
 }
 
