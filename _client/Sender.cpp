@@ -218,6 +218,7 @@ bool Sender::connect()
     tcp->syn = 1;
     tcp->ack = 0;
     tcp->from_serv = 0;
+    tcp->window_size = htons(message_len);
 
     auto packet = create_packet(tcp, message, message_len);
     int d;
@@ -243,6 +244,7 @@ bool Sender::connect()
             ack_tcp->ack_number = htonl(ntohl(interface->tcpHeader()->number) + 1);
             ack_tcp->syn = 0;
             ack_tcp->from_serv = 0;
+            ack_tcp->window_size = htons(strlen(jjj));
 
             auto ack_packet = create_packet(ack_tcp, jjj, strlen(jjj));
             std::cout << "here - "<< ntohl(interface->tcpHeader()->number) << "than there - " <<  ntohl(interface->tcpHeader()->number) + 1 << std::endl;
@@ -299,9 +301,10 @@ bool Sender::send(const char * packet)
     tc->number = htons(m_number);
     tc->ack_number = htons(m_ackNumber);
     tc->SACK = 0;
-    auto pack = create_packet(tc, std::move(packet), sizeof(packet));
+    tc->window_size = htons(data_len);
+    auto pack = create_packet(tc, std::move(packet), data_len);
 
-    int n = sendto(m_sockfd, pack.data(), m_sizeheaders + data_len, 0, (struct sockaddr *)&m_servaddr, sizeof(m_servaddr));
+    int n = sendto(m_sockfd, std::next(pack.begin(), sizeof(pseudo_header)), m_sizeheaders + data_len, 0, (struct sockaddr *)&m_servaddr, sizeof(m_servaddr));
     if(n > 0)
     {
         std::cout << "send Success " << std::endl;

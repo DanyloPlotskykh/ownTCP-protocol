@@ -37,7 +37,7 @@ int main() {
     Reciever r;
     r.connect();
 
-    // r.accept();
+    r.accept();
     // int sockfd;
     // struct sockaddr_in servaddr, cliaddr;
 
