@@ -10,7 +10,7 @@
 #define PORT 8080
 #define SERVER_IP "127.0.0.1"
 
-tcp_hdr& tcp_hdr::operator=(const tcp_hdr& other)
+tcp_hdr tcp_hdr::operator=(const tcp_hdr& other) noexcept
 {
     if (this == &other) {
         return *this;
@@ -35,24 +35,10 @@ tcp_hdr& tcp_hdr::operator=(const tcp_hdr& other)
     return *this;
 }
 
-tcp_hdr::tcp_hdr() {
+tcp_hdr::tcp_hdr() : number(0), ack_number(0), len(0), reserved(0), ns(0), cwr(0), ece(0), fin(0),
+                    syn(0), rst(0), psh(0), urg(0), window_size(0), from_serv(0), SACK(0)
+{
     std::cout << "tcp_hdr::tcp_hdr()" << std::endl;
-    number = 0;
-    ack_number = 0;
-    len = 0;
-    reserved = 0;
-    ns = 0;
-    cwr = 0;
-    ece = 0;
-    fin = 0;
-    syn = 0;
-    rst = 0;
-    psh = 0;
-    ack = 0;
-    urg = 0;
-    window_size = 0;
-    from_serv = 0;
-    SACK = 0;
 }
 
 static unsigned short calculate_checksum(void* b, size_t len)
@@ -160,46 +146,41 @@ Sender::Sender(std::string_view addr, int port) : m_addr(addr), m_port(port), m_
     if (setsockopt(m_sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&m_tv, sizeof(m_tv)) < 0) {
         std::cerr << "Error setting socket options" << std::endl;
     }
+
+    std::cout << "generated isn - " << m_number << std::endl;
+    std::cout << "sizeof pseudo - " << sizeof(pseudo_header) << std::endl;
 }
 
-std::array<char, 1024> Sender::create_packet(const struct tcp_hdr& tcp, const char* data, int data_size)
+std::array<char, 1024> Sender::create_packet(const struct tcp_hdr* tcp, const char* data, int data_size)
 {
     std::array<char, 1024> packet;
     packet.fill('\0');
-    std::cout << "test str lenght data - " << data_size << std::endl;
-    struct udphdr *udph = (struct udphdr *)(packet.data());
-    udph->source = htons(m_port);
-    udph->dest = htons(m_port);
-    udph->len = htons(sizeof(struct udphdr) + sizeof(struct tcp_hdr) + data_size);
-    udph->check = 0; 
-    struct tcp_hdr *tcph = (struct tcp_hdr *)(packet.data() + sizeof(struct udphdr));
-    *tcph = tcp;
-    tcph->len = calculate_checksum(packet.data(), sizeof(struct tcp_hdr));
-    pseudo_header psh;
-    psh.source_address = inet_addr("127.0.0.1");
-    psh.dest_address = inet_addr("127.0.0.1");
-    psh.placeholder = 0;
-    psh.protocol = IPPROTO_UDP;
-    psh.udp_length = htons(sizeof(struct udphdr) + sizeof(struct tcp_hdr) + data_size);
 
-    int psize = sizeof(struct udphdr) + sizeof(struct pseudo_header) + sizeof(struct tcp_hdr) + data_size;
+    pseudo_header * ps = (struct pseudo_header *)packet.begin();
+    ps->dest_address = inet_addr(m_addr.c_str());
+    ps->source_address = inet_addr(m_addr.c_str());
+    ps->placeholder = 0;
+    ps->protocol = IPPROTO_UDP;
+    ps->udp_length = sizeof(struct udphdr);
 
-    char * buff = new char[psize];
-    memset(buff, 0, psize);
+    struct udphdr * ud = (struct udphdr *)(std::next(packet.begin(), sizeof(struct pseudo_header)));
+    ud->source = htons(m_port);
+    ud->dest = htons(m_port);
+    ud->len = htons(sizeof(struct udphdr));
+    ud->check = 0;
 
-    memcpy(buff, &psh, sizeof(pseudo_header));
-    memcpy(buff + sizeof(pseudo_header), udph, sizeof(udphdr));
-    memcpy(buff + sizeof(pseudo_header) + sizeof(udphdr), tcph, sizeof(tcp_hdr));
-    memcpy(buff + sizeof(pseudo_header) + sizeof(udphdr) + sizeof(tcp_hdr), data, data_size);
+    struct tcp_hdr * tc = (struct tcp_hdr *)(std::next(packet.begin(), sizeof(struct pseudo_header) + sizeof(struct udphdr)));
+    *tc = *tcp;
 
-    int lenn = strlen(buff);
+    memcpy(std::next(packet.begin(), sizeof(struct pseudo_header) + sizeof(struct udphdr) + sizeof(struct tcp_hdr)),data, data_size);
 
-    memcpy(packet.data() + sizeof(struct udphdr) + sizeof(tcp_hdr), data, data_size);
-    udph->check = htons(calculate_checksum(buff, psize)); 
-    std::cout << "checksum - " << ntohs(udph->check) << std::endl;
+    int psize = sizeof(struct pseudo_header) + sizeof(struct udphdr) + sizeof(struct tcp_hdr) + data_size;
+
+    ud->check = htons(calculate_checksum(packet.data(), psize));
+    std::cout << "checksum - " << ntohs(ud->check) << std::endl;
     return packet;
 }
-
+ 
 Interface* Sender::recieve() {
     socklen_t addrlen = sizeof(m_servaddr);
     char buffer[1024];
@@ -229,18 +210,18 @@ Interface* Sender::recieve() {
 
 bool Sender::connect()
 {
-    const char *message = "Hello, Server!";
+    const char *message = "Hello, Server!\0";
     int message_len = strlen(message);
-    tcp_hdr tcp;
-    tcp.number = htons(m_number);
-    tcp.ack_number = 0;
-    tcp.syn = 1;
-    tcp.ack = 0;
-    tcp.from_serv = 0;
+    tcp_hdr * tcp = new tcp_hdr;
+    tcp->number = htons(m_number);
+    tcp->ack_number = 0;
+    tcp->syn = 1;
+    tcp->ack = 0;
+    tcp->from_serv = 0;
 
     auto packet = create_packet(tcp, message, message_len);
     int d;
-    if ((d = sendto(m_sockfd, packet.data(), m_sizeheaders + message_len, 0, (struct sockaddr *)&m_servaddr, sizeof(m_servaddr))) < 0) {
+    if ((d = sendto(m_sockfd, std::next(packet.begin(), sizeof(struct pseudo_header)), m_sizeheaders + message_len, 0, (struct sockaddr *)&m_servaddr, sizeof(m_servaddr))) < 0) {
         perror("sendto failed");
     } else {
         std::cout << "Message sent to server. "  << d << "  " << message_len << std::endl;
@@ -255,18 +236,31 @@ bool Sender::connect()
         if (interface->tcpHeader()->syn == 1 && interface->tcpHeader()->ack == 1) {
             std::cout << "Received SYN-ACK from server." << std::endl;
             // Send ACK to complete three-way handshake
-            tcp_hdr ack_tcp;
-            ack_tcp.ack = 1;
-            ack_tcp.number = 0;
-            ack_tcp.ack_number = htonl(ntohl(interface->tcpHeader()->number) + 1);
-            ack_tcp.syn = 0;
-            ack_tcp.from_serv = 0;
+            char * jjj = "helodsdsds ack\0";
+            tcp_hdr *ack_tcp = new tcp_hdr();
+            ack_tcp->ack = 1;
+            ack_tcp->number = 0;
+            ack_tcp->ack_number = htonl(ntohl(interface->tcpHeader()->number) + 1);
+            ack_tcp->syn = 0;
+            ack_tcp->from_serv = 0;
 
-            auto ack_packet = create_packet(ack_tcp, nullptr, 0);
-            if (sendto(m_sockfd, ack_packet.data(), m_sizeheaders, 0, (struct sockaddr *)&m_servaddr, sizeof(m_servaddr)) < 0) {
+            auto ack_packet = create_packet(ack_tcp, jjj, strlen(jjj));
+            std::cout << "here - "<< ntohl(interface->tcpHeader()->number) << "than there - " <<  ntohl(interface->tcpHeader()->number) + 1 << std::endl;
+            if (sendto(m_sockfd, std::next(ack_packet.begin(), sizeof(struct pseudo_header)), m_sizeheaders + strlen(jjj), 0, (struct sockaddr *)&m_servaddr, sizeof(m_servaddr)) < 0) {
                 perror("sendto failed");
             } else {
                 std::cout << "ACK sent to server." << std::endl;
+                std::cout << "test:" << std::endl;
+                std::cout << "data - " << reinterpret_cast<char *>(std::next(ack_packet.begin(), 36)) << std::endl;
+                std::cout << "size - " << strlen(reinterpret_cast<char *>(std::next(ack_packet.begin(), 36))) << std::endl;
+                std::cout << "ack - " << reinterpret_cast<tcp_hdr*>(std::next(ack_packet.begin(), 20))->ack << std::endl;
+                std::cout << "syn - " << reinterpret_cast<tcp_hdr*>(std::next(ack_packet.begin(), 20))->syn << std::endl;
+                std::cout << "full packet - " <<  std::endl;
+                for(auto i = 0; i < ack_packet.size(); ++i)
+                {
+                    std::cout << ack_packet[i];
+                }
+                std::cout << std::endl;
             }
         }
     } else {
@@ -299,12 +293,12 @@ bool Sender::send(const char * packet)
     std::thread timerThread([this, &cv, &cv_m]{timer(this->stop_timer, cv, cv_m, this->isStoped);});
     std::cout << "Sender::send()" << std::endl;
     auto data_len = strlen(packet);
-    tcp_hdr tc;
-    tc.from_serv = 0;
-    tc.ack = 0;
-    tc.number = htons(m_number);
-    tc.ack_number = htons(m_ackNumber);
-    tc.SACK = 0;
+    tcp_hdr * tc = new tcp_hdr();
+    tc->from_serv = 0;
+    tc->ack = 0;
+    tc->number = htons(m_number);
+    tc->ack_number = htons(m_ackNumber);
+    tc->SACK = 0;
     auto pack = create_packet(tc, std::move(packet), sizeof(packet));
 
     int n = sendto(m_sockfd, pack.data(), m_sizeheaders + data_len, 0, (struct sockaddr *)&m_servaddr, sizeof(m_servaddr));

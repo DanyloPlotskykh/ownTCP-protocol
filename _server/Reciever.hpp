@@ -18,7 +18,8 @@ struct tcp_hdr
     uint16_t from_serv;
     uint16_t SACK;
 
-    tcp_hdr& operator=(const tcp_hdr& other);
+    tcp_hdr& operator=(const tcp_hdr& other) noexcept;
+    tcp_hdr();
 };
 
 struct pseudo_header {
