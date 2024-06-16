@@ -88,7 +88,7 @@ static bool verify_checksum(const char* packet, int packet_len, const char* src_
     struct tcp_hdr * tc = (struct tcp_hdr *)(std::next(array.begin(), sizeof(pseudo_header) + sizeof(struct udphdr)));
     *tc = *(interf.tcpHeader());
 
-    int psize = sizeof(struct pseudo_header) + sizeof(struct udphdr) + sizeof(struct tcp_hdr) + data_size;
+    int psize = sizeof(struct pseudo_header) + sizeof(struct udphdr) + sizeof(struct tcp_hdr) + ntohs(interf.tcpHeader()->window_size);
 
     memcpy(std::next(array.begin(), sizeof(struct pseudo_header) + sizeof(struct udphdr) + sizeof(struct tcp_hdr)), interf.data(), data_size);
     auto control = calculate_checksum(array.data(), psize);
