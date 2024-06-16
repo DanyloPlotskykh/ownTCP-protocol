@@ -37,7 +37,7 @@ private:
     bool trueOrFalseCond;
     int m_bytes;
 public:
-    explicit Interface(const unsigned char* packet);
+    explicit Interface(const char* packet);
     ~Interface();
     iphdr * ipHeader();
     udphdr * udpHeader();
@@ -58,13 +58,12 @@ private:
     const int m_sizeheaders;
     std::string m_addr;
     std::queue<Interface> m_window;
-    int ack;
     int m_number;
     int m_sockfd;
     int m_port;
     struct sockaddr_in m_servaddr, m_cliaddr;
     socklen_t m_len;
-    std::array<char, BUFFER_SIZE> create_packet(const struct tcp_hdr& tcp, const char* data, int data_size);
+    std::array<char, BUFFER_SIZE> create_packet(const struct tcp_hdr* tcp, const char* data, int data_size);
 
 private:
     Interface* recieve();

@@ -8,6 +8,8 @@
 #include <fcntl.h>
 #include <atomic>
 
+#define BUFFER_SIZE 1024
+
 struct tcp_hdr
 {
     uint32_t number;
@@ -51,6 +53,10 @@ public:
     tcp_hdr * tcpHeader();
     char * data();
 
+    std::array<char, BUFFER_SIZE> getPacket() const;
+    void setByte(int n);
+    int getByte() const;
+
     Interface& operator=(const bool other);
     Interface& operator=(const char * other);
     operator bool() const;
@@ -65,12 +71,12 @@ private:
     const std::string m_addr;
     int m_port;
     uint32_t m_number;
-    uint32_t m_ackNumber;
     struct sockaddr_in m_servaddr;
     std::array<char, 1024> create_packet(const struct tcp_hdr* tcp, const char* data, int data_size);
     struct timeval m_tv;
     std::atomic<bool> stop_timer;
     std::atomic<bool> isStoped;
+    socklen_t m_len;
 
 private:
     Interface* recieve();
