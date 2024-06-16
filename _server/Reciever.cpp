@@ -10,7 +10,7 @@
 
 #define PORT 8080
 
-tcp_hdr& tcp_hdr::operator=(const tcp_hdr& other)
+tcp_hdr& tcp_hdr::operator=(const tcp_hdr& other) noexcept
 {
     if (this == &other) {
         return *this;
@@ -35,6 +35,13 @@ tcp_hdr& tcp_hdr::operator=(const tcp_hdr& other)
     return *this;
 }
 
+tcp_hdr::tcp_hdr() : number(0), ack_number(0), len(0), reserved(0), ns(0), cwr(0), ece(0), fin(0),
+                    syn(0), rst(0), psh(0), urg(0), window_size(0), from_serv(1), SACK(0)
+{
+    std::cout << "tcp_hdr::tcp_hdr()" << std::endl;
+}
+
+
 static unsigned short calculate_checksum(void* b, size_t len)
 {
     unsigned short *buf = reinterpret_cast<unsigned short *>(b);
@@ -56,35 +63,39 @@ static bool verify_checksum(const char* packet, int packet_len, const char* src_
     if (packet_len < 0)
         return false;
     
-    struct udphdr * ud = (struct udphdr *)(packet + sizeof(iphdr));
-    unsigned short recieved = ud->check;
-    std::cout << "verify recived checksum - " << htons(recieved) << std::endl;
-    struct tcp_hdr *tc = (struct tcp_hdr *)(packet + sizeof(iphdr) + sizeof(udphdr));   
-    std::cout << "verify received len - " << htons(ud->len) << std::endl;
+    std::array<char, BUFFER_SIZE> array;
+    auto interf = Interface((unsigned char *)packet);
+    auto recieved = ntohs(interf.udpHeader()->check);
+    auto data_size = strlen(interf.data());
+    
+    std::cout << "recieved checksum - " << recieved << std::endl;
+    std::cout << "data size - " << data_size << std::endl;
+    std::cout << "data - " << interf.data() << std::endl;
 
-    pseudo_header psh;
-    psh.source_address = inet_addr(src_ip);
-    psh.dest_address = inet_addr(dest_ip);
-    psh.placeholder = 0;
-    psh.protocol = IPPROTO_UDP;
-    psh.udp_length = htons(packet_len);
+    pseudo_header * ps = (struct pseudo_header * )array.begin();
+    ps->dest_address = inet_addr("127.0.0.1");
+    ps->source_address = inet_addr("127.0.0.1");
+    ps->placeholder = 0;
+    ps->protocol = IPPROTO_UDP;
+    ps->udp_length = sizeof(struct udphdr);
 
-    Interface intrf((unsigned char *)packet);
+    struct udphdr * ud = (struct udphdr *)(std::next(array.begin(), sizeof(pseudo_header)));
+    ud->dest = htons(PORT);
+    ud->source = htons(PORT);
+    ud->len = htons(sizeof(struct udphdr));
+    ud->check = 0;
 
-    int psize = sizeof(udphdr) + sizeof(pseudo_header) + sizeof(tcp_hdr) + strlen(intrf.data());
-    char * buff = new char[psize];
+    struct tcp_hdr * tc = (struct tcp_hdr *)(std::next(array.begin(), sizeof(pseudo_header) + sizeof(struct udphdr)));
+    *tc = *(interf.tcpHeader());
 
-    memcpy(buff, &psh, sizeof(pseudo_header));
-    memcpy(buff + sizeof(pseudo_header), ud, sizeof(udphdr));
-    memcpy(buff + sizeof(pseudo_header) + sizeof(udphdr), tc, sizeof(tcp_hdr));
-    memcpy(buff + sizeof(pseudo_header) + sizeof(udphdr) + sizeof(tcp_hdr), intrf.data(), strlen(intrf.data()));
+    int psize = sizeof(struct pseudo_header) + sizeof(struct udphdr) + sizeof(struct tcp_hdr) + data_size;
 
-    auto lenn = strlen(buff);
+    memcpy(std::next(array.begin(), sizeof(struct pseudo_header) + sizeof(struct udphdr) + sizeof(struct tcp_hdr)), interf.data(), data_size);
+    auto control = calculate_checksum(array.data(), psize);
 
-    unsigned short calculated_checksus = calculate_checksum(buff, psize);
-    std::cout << "verify calculated checksum - " << calculated_checksus << std::endl;
+    std::cout << "calculated checksum - " << control << std::endl;
 
-    return (calculated_checksus == htons(recieved));
+    return (control == recieved);
 }
 
 static uint32_t generate_isn() {
@@ -201,7 +212,7 @@ Interface* Reciever::recieve() {
             inter = new Interface((const unsigned char *)buffer);
             if(inter->tcpHeader()->from_serv == 0)
             {
-                std::cout << "cool\n";
+                std::cout << "cool - " << inter->data() << std::endl;
                 inter->setByte(i);
                 return inter;
             }
@@ -284,7 +295,7 @@ bool Reciever::connect() {
                     auto data_len = strlen(data);
                     std::cout << "data_len: " << data_len << std::endl;
 
-                    auto SYN_ACK_packet = create_packet(tcp, data, data_len);
+                    auto SYN_ACK_packet = create_packet(tcp, nullptr, 0);
                     int j = sendto(m_sockfd, SYN_ACK_packet.data(), sizeof(struct udphdr) + sizeof(struct tcp_hdr) + data_len, 0, (struct sockaddr *)&m_servaddr, len);
                     if (j < 0) 
                     {
@@ -305,7 +316,8 @@ bool Reciever::connect() {
                         {
                             if (interfi->tcpHeader()->ack == 1 && interfi->tcpHeader()->syn == 0) 
                             {
-                                std::cout << "Connection established" << std::endl;
+                                std::cout << "here - " << ntohs(interfi->tcpHeader()->ack_number) << std::endl;
+                                std::cout << "Connection established " << ntohs(interfi->udpHeader()->check) <<  std::endl;
                                 return true;
                             } 
                             else 

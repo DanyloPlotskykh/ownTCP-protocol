@@ -17,7 +17,7 @@ struct tcp_hdr
     uint16_t from_serv;
     uint16_t SACK;
 
-    tcp_hdr& operator=(const tcp_hdr& other);
+    tcp_hdr operator=(const tcp_hdr& other) noexcept;
     tcp_hdr();
 };
 
@@ -67,7 +67,7 @@ private:
     uint32_t m_number;
     uint32_t m_ackNumber;
     struct sockaddr_in m_servaddr;
-    std::array<char, 1024> create_packet(const struct tcp_hdr& tcp, const char* data, int data_size);
+    std::array<char, 1024> create_packet(const struct tcp_hdr* tcp, const char* data, int data_size);
     struct timeval m_tv;
     std::atomic<bool> stop_timer;
     std::atomic<bool> isStoped;
