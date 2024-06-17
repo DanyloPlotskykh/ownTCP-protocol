@@ -3,13 +3,15 @@
 #include <chrono>
 #include <random>
 #include <memory>
+#include <algorithm>
 
 #define PORT 8080
 #define SERVER_IP "127.0.0.1"
-Sender::Sender(std::string_view addr, int port) : m_addr(addr), m_port(port),
-        m_sizeheaders(sizeof(struct udphdr)+ sizeof(struct tcp_hdr)), m_number(1)
+Sender::Sender(std::string_view addr, int port) : m_addr(addr), m_port(port), m_prevPackNumber(0),
+        m_sizeheaders(sizeof(struct udphdr)+ sizeof(struct tcp_hdr))
 
 {
+    m_number = 1;
     std::cout << "Sender::Sender()" << std::endl;
     if ((m_sockfd = socket(AF_INET, SOCK_RAW, IPPROTO_UDP)) < 0) {
         perror("socket creation failed");
@@ -80,6 +82,7 @@ Interface* Sender::recieve() {
                 inter->setByte(n);
                 *inter = true;
                 return inter;
+                std::cout << "cool" << std::endl;
             }
         }
         else
@@ -124,6 +127,7 @@ bool Sender::connect()
             std::cout << "recieved ack_packet - " << ntohs(interface->tcpHeader()->ack_number) << std::endl;
             std::cout << "recieved number - " << ntohs(interface->tcpHeader()->number) << std::endl;
             // Send ACK to complete three-way handshake
+            m_prevPackNumber = ntohs(interface->tcpHeader()->number);
             m_number = ntohs(interface->tcpHeader()->ack_number);
             char * jjj = "helodsdsds ack\0";
             tcp_hdr *ack_tcp = new tcp_hdr();
@@ -155,14 +159,15 @@ bool Sender::connect()
 }
 
 //no sack implementation
-bool Sender::send(const char * packet)
+bool Sender::send(const char * packet, int number)
 {
     std::cout << "Sender::send()" << std::endl;
+    if(number == -1){number = m_number;}
     auto data_len = strlen(packet);
     tcp_hdr * tc = new tcp_hdr();
     tc->from_serv = 0;
     tc->ack = 0;
-    tc->number = htons(++m_number);
+    tc->number = htons(++number);
     tc->SACK = 0;
     tc->window_size = htons(data_len);
     auto pack = create_packet(tc, std::move(packet), data_len);
@@ -173,10 +178,11 @@ bool Sender::send(const char * packet)
         std::cout << "send Success " << std::endl;
         auto interf = recieve();
 
-        std::cout << "recieved ack send() - " << ntohs(interf->tcpHeader()->ack_number) << " m_number - " << m_number << std::endl; 
+        std::cout << "recieved ack send() - " << ntohs(interf->tcpHeader()->ack_number) << " number - " << number << std::endl; 
 
-        if(interf->tcpHeader()->ack == 1 && ntohs(interf->tcpHeader()->ack_number) - m_number == 1)
+        if(ntohs(interf->tcpHeader()->ack_number) - number == 1)
         {
+            ++m_number;
             std::cout << "packet has been ack " << std::endl;
             return true;
         }
@@ -199,7 +205,6 @@ bool Sender::send(std::vector<char *> packets)
         auto len = strlen(packets[i]);
         auto tcp = std::make_shared<tcp_hdr>();
         tcp->number = htons(m_number + counter);
-        tcp->SACK = 1;
         tcp->from_serv = 0;
         tcp->window_size = htons(len);
         tcp->count_packets = htons(packets.size() - i-1);
@@ -209,5 +214,108 @@ bool Sender::send(std::vector<char *> packets)
         auto pack = create_packet(tcp.get(), packets[i], len);
         sendto(m_sockfd, std::next(pack.begin(), sizeof(pseudo_header)), m_sizeheaders + len ,0, (struct sockaddr *)&m_servaddr, sizeof(m_servaddr));
         ++counter;
+    }
+
+    std::cout << "m_number - " <<  m_number << std::endl;
+    std::cout << "counter - " <<  counter << std::endl;
+    int expected = m_number + counter;
+    std::cout << "expected - " <<  expected << std::endl;
+    while(1)
+    {
+        auto pack = recieve();
+        int number = htons(pack->tcpHeader()->ack_number);
+        std::cout << "expected packet number - " << number  <<std::endl;
+        if(number == 0){continue;}
+        if(number >= expected)
+        {
+            m_number +=counter;
+            return true;
+        }
+        else
+        {
+            send(packets[number-m_number], number);
+        }
+    }
+    return false;
+}
+
+void Sender::accept()
+{
+    std::cout << "Reciever::accept() " << std::endl;
+    std::vector<Interface *> window;
+    std::vector<int> miss_pack;
+    while(1)
+    {
+        //1
+        auto interf = recieve();
+        window.emplace_back(interf);
+        std::cout << "len - " << ntohs(interf->tcpHeader()->count_packets) << std::endl;
+        std::cout << "data - " << interf->data() << std::endl;
+        if(ntohs(interf->tcpHeader()->count_packets) > 1)
+        {   
+            for(;;){
+                auto intr = recieve();
+                if(ntohs(intr->tcpHeader()->number) > ntohs(interf->tcpHeader()->count_packets))
+                {
+                    window.emplace_back(intr);
+                }
+                if(ntohs(intr->tcpHeader()->count_packets)==0){break;}
+            }
+        }
+        std::cout << "prev - " << m_prevPackNumber << std::endl;
+        //2
+
+        if(ntohs(window[0]->tcpHeader()->number) - m_prevPackNumber != 1)
+        {
+            miss_pack.emplace_back(ntohs(window[0]->tcpHeader()->number));
+        }
+
+        for(auto i : window)
+        {
+            std::cout << "number - " << ntohs(i->tcpHeader()->number) << std::endl;
+        }
+        for(auto i = 1; i < window.size();++i)
+        {   
+            std::cout << "ntohs(window[i]->tcpHeader()->number)" << ntohs(window[i]->tcpHeader()->number) << std::endl;
+            std::cout << "ntohs(window[i-1]->tcpHeader()->number)" << ntohs(window[i-1]->tcpHeader()->number) << std::endl;
+            if(ntohs(window[i]->tcpHeader()->number) - ntohs(window[i-1]->tcpHeader()->number) > 1)
+            {
+                for(int j = ntohs(window[i-1]->tcpHeader()->number); i < ntohs(window[i]->tcpHeader()->number); ++i)
+                {
+                    miss_pack.emplace_back(i);
+                }
+            }
+            if(verify_checksum(window[i]->getPacket().data(), window[i]->getByte(), m_addr.c_str(), m_addr.c_str())) 
+            {
+                std::cout << "Recieved from client - " <<  window[i]->data() << std::endl;
+            }
+            else
+            {
+                miss_pack.emplace_back(i);
+            }
+        }
+          
+
+        miss_pack.emplace_back(ntohs(window.back()->tcpHeader()->number) + 1);
+        auto last = std::unique(miss_pack.begin(), miss_pack.end());
+        miss_pack.erase(last, miss_pack.end());
+        //3
+        for(auto i : miss_pack)
+        {
+            auto tc = new tcp_hdr();
+            tc->ack = 1;
+            tc->from_serv = 1;
+            tc->ack_number = htons(i);
+
+            auto packet = create_packet(tc, nullptr, 0);
+
+            auto n = sendto(m_sockfd, std::next(packet.data(), sizeof(pseudo_header)), m_sizeheaders, 0, (struct sockaddr *)&m_servaddr, m_len);
+            if(n < 0)
+            {
+                std::cout << "ack was not sended - accept() " << std::endl;
+            }
+        }
+        window.clear();
+        miss_pack.clear();
     }
 }

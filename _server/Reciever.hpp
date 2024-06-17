@@ -18,7 +18,6 @@ private:
     int m_port;
     struct sockaddr_in m_servaddr, m_cliaddr;
     socklen_t m_len;
-    bool m_sack;
     int m_prevPackNumber;
 
 private:
@@ -30,4 +29,7 @@ public:
     ~Reciever();
     bool connect();
     void accept();
+
+    bool send(const char* packet, int number = -1);
+    bool send(std::vector<char *> packets);
 };
