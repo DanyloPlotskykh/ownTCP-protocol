@@ -37,7 +37,8 @@ public:
     bool send(const char* packet, int number = -1);
 
     //in future FIN
-    // ?type? fin();
+    // fin();
 
     void accept();
+    // void accept1();
 };
