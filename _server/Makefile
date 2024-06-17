@@ -9,7 +9,6 @@ SRCS := main.cpp Reciever.cpp
 OBJS := $(SRCS:$(SRCDIR)/%.cpp=$(BUILDDIR)/%.o)
 TARGET := $(BUILDDIR)/server
 
-# Объявляем библиотеку и пути
 LIB := $(LIBDIR)/libtools.a
 LIBFLAGS := -L$(LIBDIR) -ltools
 

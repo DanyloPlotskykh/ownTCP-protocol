@@ -21,6 +21,7 @@ private:
     struct sockaddr_in m_servaddr;
     struct timeval m_tv;
     socklen_t m_len;
+    int m_prevPackNumber;
 
 private:
     Interface* recieve();
@@ -33,9 +34,10 @@ public:
     //SACK
     bool send(std::vector<char *> packets);
     //no-sack
-    bool send(const char* packet);
+    bool send(const char* packet, int number = -1);
 
     //in future FIN
     // ?type? fin();
 
+    void accept();
 };
