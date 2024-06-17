@@ -1,17 +1,26 @@
 CC := g++
-CFLAGS := -Wall -Wextra -std=c++17
-SRCDIR := server
+CFLAGS := -Wall -Wextra -std=c++17 -I../lib/include
+SRCDIR := _server
 BUILDDIR := ../build
+LIBDIR := $(BUILDDIR)
+INCDIR := ../lib/include
 
 SRCS := main.cpp Reciever.cpp
 OBJS := $(SRCS:$(SRCDIR)/%.cpp=$(BUILDDIR)/%.o)
-TARGET := server
+TARGET := $(BUILDDIR)/server
 
-$(TARGET): $(OBJS)
-	$(CC) $(CFLAGS) $^ -o $(BUILDDIR)/$@
+# Объявляем библиотеку и пути
+LIB := $(LIBDIR)/libtools.a
+LIBFLAGS := -L$(LIBDIR) -ltools
 
-$(BUILDDIR)/%.o: $(SRCDIR)/%.cpp
+$(TARGET): $(OBJS) $(LIB)
+	$(CC) $(CFLAGS) $^ -o $@ $(LIBFLAGS)
+
+$(BUILDDIR)/%.o: $(SRCDIR)/%.cpp | $(BUILDDIR)
 	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILDDIR):
+	mkdir -p $(BUILDDIR)
 
 clean:
 	rm -rf $(BUILDDIR)/*.o $(BUILDDIR)/$(TARGET)

@@ -7,165 +7,12 @@
 #include <random>
 #include <iterator>
 #include <thread>
+#include <queue>
+#include <algorithm>
 
 #define PORT 8080
 
-tcp_hdr& tcp_hdr::operator=(const tcp_hdr& other) noexcept
-{
-    if (this == &other) {
-        return *this;
-    }
-    this->number = other.number;
-    this->ack_number = other.ack_number;
-    this->len = other.len;
-    this->reserved = other.reserved;
-    this->ns = other.ns;
-    this->cwr = other.cwr;
-    this->ece = other.ece;
-    this->fin = other.fin;
-    this->syn = other.syn;
-    this->rst = other.rst;
-    this->psh = other.psh;
-    this->ack = other.ack;
-    this->urg = other.urg;
-    this->window_size = other.window_size;
-    this->from_serv = other.from_serv;
-    this->SACK = other.SACK;
-    return *this;
-}
-
-tcp_hdr::tcp_hdr() : number(0), ack_number(0), len(0), reserved(0), ns(0), cwr(0), ece(0), fin(0),
-                    syn(0), rst(0), psh(0), urg(0), window_size(0), from_serv(1), SACK(0)
-{
-}
-
-
-static unsigned short calculate_checksum(void* b, size_t len)
-{
-    unsigned short *buf = reinterpret_cast<unsigned short *>(b);
-    unsigned int sum = 0;
-    unsigned short result;
-
-    for (sum = 0; len > 1; len -= 2)
-        sum += *buf++;
-    if (len == 1)
-        sum += *(unsigned char*)buf;
-    sum = (sum >> 16) + (sum & 0xFFFF);
-    sum += (sum >> 16);
-    result = ~sum;
-    return result;
-}
-
-static bool verify_checksum(const char* packet, int packet_len, const char* src_ip, const char* dest_ip) 
-{
-    if (packet_len < 0)
-        return false;
-    
-    std::array<char, BUFFER_SIZE> array;
-    auto interf = Interface(packet);
-    auto recieved = ntohs(interf.udpHeader()->check);
-    auto data_size = strlen(interf.data());
-    
-    std::cout << "recieved checksum - " << recieved << std::endl;
-
-    pseudo_header * ps = (struct pseudo_header * )array.begin();
-    ps->dest_address = inet_addr("127.0.0.1");
-    ps->source_address = inet_addr("127.0.0.1");
-    ps->placeholder = 0;
-    ps->protocol = IPPROTO_UDP;
-    ps->udp_length = sizeof(struct udphdr);
-
-    struct udphdr * ud = (struct udphdr *)(std::next(array.begin(), sizeof(pseudo_header)));
-    ud->dest = htons(PORT);
-    ud->source = htons(PORT);
-    ud->len = htons(sizeof(struct udphdr));
-    ud->check = 0;
-
-    struct tcp_hdr * tc = (struct tcp_hdr *)(std::next(array.begin(), sizeof(pseudo_header) + sizeof(struct udphdr)));
-    *tc = *(interf.tcpHeader());
-
-    int psize = sizeof(struct pseudo_header) + sizeof(struct udphdr) + sizeof(struct tcp_hdr) + ntohs(interf.tcpHeader()->window_size);
-
-    memcpy(std::next(array.begin(), sizeof(struct pseudo_header) + sizeof(struct udphdr) + sizeof(struct tcp_hdr)), interf.data(), data_size);
-    auto control = calculate_checksum(array.data(), psize);
-
-    std::cout << "calculated checksum - " << control << std::endl;
-
-    return (control == recieved);
-}
-
-static uint32_t generate_isn() {
-    auto now = std::chrono::high_resolution_clock::now();
-    auto duration = now.time_since_epoch();
-    uint64_t nanos = std::chrono::duration_cast<std::chrono::nanoseconds>(duration).count();
-
-    std::mt19937_64 rng(nanos);
-    std::uniform_int_distribution<uint32_t> dist(0, UINT32_MAX);
-
-    return dist(rng);
-}
-
-Interface::Interface(const char* packet) : trueOrFalseCond(false), m_bytes(0)
-{
-    memcpy(m_buffer.data(), packet, m_buffer.size());
-}
-
-Interface::~Interface()
-{
-    std::cout << "Interface::~Interface()" << std::endl;
-}
-
-iphdr * Interface::ipHeader()
-{
-    return reinterpret_cast<iphdr * >(m_buffer.begin());
-}
-
-udphdr * Interface::udpHeader() 
-{
-    return reinterpret_cast<udphdr *>(std::next(m_buffer.begin(), sizeof(iphdr)));
-}
-tcp_hdr * Interface::tcpHeader() 
-{
-    return reinterpret_cast<tcp_hdr *>(std::next(m_buffer.begin(), sizeof(iphdr) + sizeof(udphdr)));
-}
-
-char * Interface::data()
-{
-    return reinterpret_cast<char *>(m_buffer.begin() + sizeof(iphdr) + sizeof(udphdr) + sizeof(tcp_hdr));
-}
-
-Interface& Interface::operator=(const bool other)
-{
-    this->trueOrFalseCond = other;
-    return *this;
-}
-
-Interface::operator bool() const
-{
-    return trueOrFalseCond;
-}
-
-bool Interface::operator!() const 
-{
-    return !trueOrFalseCond;
-}
-
-void Interface::setByte(int n)
-{
-    this->m_bytes = n;
-}
-
-std::array<char, BUFFER_SIZE> Interface::getPacket() const
-{
-    return m_buffer;
-} 
-
-int Interface::getByte() const 
-{
-    return m_bytes;
-}
-
-Reciever::Reciever() : m_addr("127.0.0.1"), m_number(2), m_sockfd(-1), m_port(8080), m_len(0),
+Reciever::Reciever() : m_addr("127.0.0.1"), m_number(2), m_sockfd(-1), m_port(8080), m_len(0), m_sack(false), m_prevPackNumber(0),
     m_sizeheaders(sizeof(struct udphdr) + sizeof(struct tcp_hdr))
 {
     std::cout << "Reciever::Reciever()" << std::endl;
@@ -208,6 +55,14 @@ Interface* Reciever::recieve() {
             inter = new Interface(buffer);
             if(inter->tcpHeader()->from_serv == 0)
             {
+                std::cout << "ns - " << ntohs(inter->tcpHeader()->ns) << std::endl;
+                if(ntohs(inter->tcpHeader()->ns) == 1)
+                {
+                    m_sack = true; 
+                    std::cout << "if ... ns \n";
+                    // auto tcp = new tcp_hdr();
+                    // tcp->ns = htons(1);
+                }
                 inter->setByte(i);
                 std::cout << "recieved number - " << ntohs(inter->tcpHeader()->number) << std::endl;
                 std::cout << "recieved ack number - " << ntohs(inter->tcpHeader()->ack_number) << std::endl;
@@ -277,12 +132,13 @@ bool Reciever::connect() {
                     char *data = "shalom";
                     auto data_len = strlen(data);
                     tcp->ack = 1;
-                    tcp->ack_number = htons(ntohs(interf->tcpHeader()->number) + interf->getByte() + 1);
+                    tcp->ack_number = htons(ntohs(interf->tcpHeader()->number) + 1);
                     tcp->number = htons(m_number); // Initial sequence number
                     tcp->syn = 1;
                     tcp->from_serv = 1;
                     tcp->window_size = data_len;
 
+                    m_prevPackNumber = ntohs(tcp->ack_number);
                     std::cout << "sending number - " << ntohs(tcp->number) << std::endl;
                     std::cout << "sending ack number - " << ntohs(tcp->ack_number) << std::endl;
 
@@ -320,7 +176,13 @@ bool Reciever::connect() {
                     }
                 }
             }
-        } else {
+            else
+            {
+                std::cout << "!checksum" << std::endl;
+            }
+        } 
+        else 
+        {
             std::cout << "else - -" << std::endl;
             return false;
         }
@@ -331,32 +193,110 @@ bool Reciever::connect() {
 void Reciever::accept()
 {
     std::cout << "Reciever::accept() " << std::endl;
-    auto interf = recieve();
-    if(verify_checksum(interf->getPacket().data(), interf->getByte(), m_addr.c_str(), m_addr.c_str())) 
+    std::vector<Interface *> window;
+    std::vector<int> miss_pack;
+    while(1)
     {
-        std::cout << "Recieved from client - " <<  interf->data() << std::endl;
-
-        auto tc = new tcp_hdr();
-        tc->ack = 1;
-        tc->from_serv = 1;
-
-        std::cout << "test - " << ntohs(interf->tcpHeader()->number) << " n - " << interf->getByte() << std::endl;
-
-        tc->ack_number = htons(ntohs(interf->tcpHeader()->number) + interf->getByte() + 1);
-
-        auto packet = create_packet(tc, nullptr, 0);
-
-        auto n = sendto(m_sockfd, std::next(packet.data(), sizeof(pseudo_header)), m_sizeheaders, 0, (struct sockaddr *)&m_cliaddr, m_len);
-        if(n < 0)
-        {
-            std::cout << "ack was not sended - accept() " << std::endl;
+        //1
+        auto interf = recieve();
+        window.emplace_back(interf);
+        std::cout << "len - " << ntohs(interf->tcpHeader()->count_packets) << std::endl;
+        std::cout << "data - " << interf->data() << std::endl;
+        if(ntohs(interf->tcpHeader()->count_packets) > 1)
+        {   
+            for(;;){
+                auto intr = recieve();
+                if(ntohs(intr->tcpHeader()->number) > ntohs(interf->tcpHeader()->count_packets))
+                {
+                    window.emplace_back(intr);
+                }
+                if(ntohs(intr->tcpHeader()->count_packets)==0){break;}
+            }
         }
-    }
-    else
-    {
-        //smth
+        std::cout << "prev - " << m_prevPackNumber << std::endl;
+        //2
+
+        try
+        {
+            if(ntohs(window[0]->tcpHeader()->number) - m_prevPackNumber != 1)
+            {
+                miss_pack.emplace_back(ntohs(window[0]->tcpHeader()->number));
+            }
+        }
+        catch(std::exception &e)
+        {
+            std::cout << "exeption - " << e.what() << std::endl;
+        }
+        
+        std::cout << "uga buga " << std::endl;
+
+        for(auto i : window)
+        {
+            std::cout << "number - " << ntohs(i->tcpHeader()->number) << std::endl;
+        }
+
+        try
+        {
+            for(auto i = 1; i < window.size();++i)
+            {   
+                std::cout << "ntohs(window[i]->tcpHeader()->number)" << ntohs(window[i]->tcpHeader()->number) << std::endl;
+                std::cout << "ntohs(window[i-1]->tcpHeader()->number)" << ntohs(window[i-1]->tcpHeader()->number) << std::endl;
+                if(ntohs(window[i]->tcpHeader()->number) - ntohs(window[i-1]->tcpHeader()->number) > 1)
+                {
+                    for(int j = ntohs(window[i-1]->tcpHeader()->number); i < ntohs(window[i]->tcpHeader()->number); ++i)
+                    {
+                        miss_pack.emplace_back(i);
+                    }
+                }
+                if(verify_checksum(window[i]->getPacket().data(), window[i]->getByte(), m_addr.c_str(), m_addr.c_str())) 
+                {
+                    std::cout << "Recieved from client - " <<  window[i]->data() << std::endl;
+                }
+                else
+                {
+                    miss_pack.emplace_back(i);
+                }
+            } 
+        }
+        catch(std::exception &e)
+        {
+            std::cout << "exeption - " << e.what() << std::endl;
+        }
+          
+
+        miss_pack.emplace_back(ntohs(window.back()->tcpHeader()->number) + 1);
+        auto last = std::unique(miss_pack.begin(), miss_pack.end());
+        miss_pack.erase(last, miss_pack.end());
+
+        std::cout << "contains vector" << std::endl;
+        for(auto i : miss_pack)
+        {
+            std::cout << i << " ";
+        }
+        std::cout << std::endl;
+        //3
+        for(auto i : miss_pack)
+        {
+            auto tc = new tcp_hdr();
+            tc->ack = 1;
+            tc->from_serv = 1;
+
+            // std::cout << "test - " << ntohs(pack->tcpHeader()->number) << " n - " << pack->getByte() << std::endl;
+            tc->ack_number = htons(i);
+
+            auto packet = create_packet(tc, nullptr, 0);
+
+            auto n = sendto(m_sockfd, std::next(packet.data(), sizeof(pseudo_header)), m_sizeheaders, 0, (struct sockaddr *)&m_cliaddr, m_len);
+            if(n < 0)
+            {
+                std::cout << "ack was not sended - accept() " << std::endl;
+            }
+        }
+        window.clear();
+        miss_pack.clear();
     }
 }
+
                     //auto ack_packet = std::make_unique<unsigned char []>(1024);
 
 
