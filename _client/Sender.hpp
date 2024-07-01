@@ -30,7 +30,7 @@ private:
 public:
     Sender(std::string_view addr, int port);
     //SYN-ACK
-    bool connect(); 
+    bool connect();  // where?? connect to what??
     //SACK
     bool send(std::vector<char *> packets);
     //no-sack

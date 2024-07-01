@@ -7,7 +7,8 @@
 #include <fcntl.h>
 #include <vector>
 
-#define BUFFER_SIZE 1024
+// static constexpr auto BUFFER_SIZE = 1024;
+#define BUFFER_SIZE 1024 // don't use defines for such variables
 
 struct tcp_hdr
 {
@@ -31,6 +32,8 @@ struct pseudo_header {
     uint16_t udp_length;
 };
 
+
+// improve naming
 class Interface
 {
 private:
@@ -38,6 +41,7 @@ private:
     bool trueOrFalseCond;
     int m_bytes;
 public:
+    // size of char *
     explicit Interface(const char* packet);
     Interface();
     ~Interface();
@@ -50,10 +54,11 @@ public:
     void setByte(int n);
     int getByte() const;
 
+    // what it does?
     Interface& operator=(const bool other);
     Interface& operator=(const char * other);
     operator bool() const;
-    bool operator!() const;
+    bool operator!() const; // extra bool operator is enough
 };
 
 uint32_t generate_isn();

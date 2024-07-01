@@ -1,4 +1,5 @@
-#include <tools.hpp>
+// check the differenct between <> and ""
+#include <tools.hpp> // better to use ""
 #include <chrono>
 #include <random>
 #include <cstring>
@@ -37,6 +38,8 @@ tcp_hdr::tcp_hdr() : number(0), ack_number(0), len(0), reserved(0), ns(0), cwr(0
 }
 
 uint32_t generate_isn() {
+    // using namespace std::chrono;
+    // auto nanos = duration_cast<nanoseconds>(high_resolution_clock::now().time_since_epoch()).count();
     auto now = std::chrono::high_resolution_clock::now();
     auto duration = now.time_since_epoch();
     uint64_t nanos = std::chrono::duration_cast<std::chrono::nanoseconds>(duration).count();
@@ -69,9 +72,9 @@ bool verify_checksum(const char* packet, int packet_len, const char* src_ip, con
         return false;
     
     std::array<char, BUFFER_SIZE> array;
-    auto interf = Interface(packet);
+    auto interf = Interface(packet); // pass packet_len as well
     auto recieved = ntohs(interf.udpHeader()->check);
-    auto data_size = strlen(interf.data());
+    auto data_size = strlen(interf.data()); // you have packet_len
     
     std::cout << "recieved checksum - " << recieved << std::endl;
 
@@ -85,9 +88,10 @@ bool verify_checksum(const char* packet, int packet_len, const char* src_ip, con
     struct udphdr * ud = (struct udphdr *)(std::next(array.begin(), sizeof(pseudo_header)));
     ud->dest = htons(PORT);
     ud->source = htons(PORT);
-    ud->len = htons(sizeof(struct udphdr));
+    ud->len = htons(sizeof(struct udphdr)); // shouldn't it be size of all payload including data and tcp?
     ud->check = 0;
 
+    // a bit strange logic here
     struct tcp_hdr * tc = (struct tcp_hdr *)(std::next(array.begin(), sizeof(pseudo_header) + sizeof(struct udphdr)));
     *tc = *(interf.tcpHeader());
 
@@ -132,6 +136,7 @@ char * Interface::data()
     return reinterpret_cast<char *>(m_buffer.begin() + sizeof(iphdr) + sizeof(udphdr) + sizeof(tcp_hdr));
 }
 
+// don't really get the idea of it
 Interface& Interface::operator=(const bool other)
 {
     this->trueOrFalseCond = other;

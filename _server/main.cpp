@@ -8,6 +8,7 @@ int main() {
     Reciever r;
     r.connect();
     r.accept();
+    // clean code
     // std::thread t1([&]{
     //     while (1)
     //     {
